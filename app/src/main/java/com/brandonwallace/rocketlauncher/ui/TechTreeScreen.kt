@@ -69,16 +69,20 @@ enum class NodeState { OWNED, AFFORDABLE, AVAILABLE, LOCKED }
 
 fun nodeState(save: SaveData, n: TechNode): NodeState = when {
     n.id in save.tech -> NodeState.OWNED
-    TechTree.isAvailable(save.tech, n) && save.money >= n.cost -> NodeState.AFFORDABLE
-    TechTree.isAvailable(save.tech, n) -> NodeState.AVAILABLE
+    TechTree.isAvailable(save, n) && save.money >= n.cost -> NodeState.AFFORDABLE
+    TechTree.isAvailable(save, n) -> NodeState.AVAILABLE
     else -> NodeState.LOCKED
 }
+
+/** Jupiter-program node that is still closed because the rocket has not landed on Mars yet. */
+fun programClosed(save: SaveData, n: TechNode): Boolean = n.id !in save.tech && !TechTree.programOpen(save, n)
 
 fun statLabel(s: Stat): String = when (s) {
     Stat.ENGINE -> "Engine"; Stat.FUEL -> "Fuel tanks"; Stat.AERO -> "Aerodynamics"; Stat.HULL -> "Hull"
     Stat.STAGES -> "Upper stage"; Stat.BOOSTERS -> "Boosters"; Stat.HEAT -> "Heat shield"; Stat.FINS -> "Fins / control"
     Stat.AVIONICS -> "Avionics"; Stat.VACUUM -> "Vacuum nozzle"; Stat.REGEN -> "Regen cooling"; Stat.SEP -> "Fast separation"
-    Stat.NUCLEAR -> "Nuclear upper stage"; Stat.EDL -> "Mars landing (EDL)"
+    Stat.NUCLEAR -> "Nuclear / plasma upper stage"; Stat.EDL -> "Mars landing (EDL)"
+    Stat.GIMBAL -> "Engine gimbal"; Stat.POWER -> "Deep-space power"; Stat.RADIATION -> "Radiation shielding"; Stat.LANDER -> "Europa lander"
 }
 
 /**
@@ -126,7 +130,8 @@ fun TechTreeScreen(engine: GameEngine, save: SaveData) {
                 // tier column guides
                 for (t in 0 until TechTree.tiers) {
                     drawRoundRect(Color(0x0FFFFFFF), Offset(pad + t * colW - 10f, pad - 50f), Size(nodeW + 20f, TechTree.rows * rowH + 60f), CornerRadius(30f))
-                    drawText(tm, "TIER ${t + 1}", Offset(pad + t * colW, pad - 44f), TextStyle(color = Color(0x88FFFFFF), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp),
+                    val program = when { t >= TechTree.JUPITER_TIER -> " · JUPITER"; t >= 6 -> " · MARS"; else -> "" }
+                    drawText(tm, "TIER ${t + 1}$program", Offset(pad + t * colW, pad - 44f), TextStyle(color = Color(0x88FFFFFF), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp),
                         maxLines = 1, size = Size(nodeW, 40f))
                 }
                 // edges
@@ -163,7 +168,12 @@ fun TechTreeScreen(engine: GameEngine, save: SaveData) {
                     val titleCol = when { dark -> Color(0xFF0A0F24); st == NodeState.LOCKED -> Color(0x77FFFFFF); else -> Color.White }
                     drawText(tm, "${n.branch.icon} ${n.title}", Offset(x + 18f, y + 12f), TextStyle(color = titleCol, fontSize = 14.sp, fontWeight = FontWeight.Bold),
                         overflow = TextOverflow.Ellipsis, maxLines = 1, size = Size(nodeW - 30f, nodeH / 2))
-                    val sub = when (st) { NodeState.OWNED -> "✓ researched"; NodeState.LOCKED -> "🔒 ${formatMoney(n.cost)}"; else -> formatMoney(n.cost) }
+                    val sub = when {
+                        st == NodeState.OWNED -> "✓ researched"
+                        programClosed(save, n) -> "🔒 land on Mars"
+                        st == NodeState.LOCKED -> "🔒 ${formatMoney(n.cost)}"
+                        else -> formatMoney(n.cost)
+                    }
                     val subCol = when (st) { NodeState.OWNED -> Color(0xCC0A0F24); NodeState.AFFORDABLE -> Color(0xFFFFD34D); NodeState.AVAILABLE -> Color(0xFFFF9A7A); NodeState.LOCKED -> Color(0x55FFFFFF) }
                     // explicit size: without it the text is measured against (canvas width - untransformed x), which is ~0
                     // for tier 3+ columns and made prices wrap one character per line
@@ -182,6 +192,8 @@ fun TechTreeScreen(engine: GameEngine, save: SaveData) {
                     Text("TECH TREE", color = UiColors.Text, fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
                     Text("${save.tech.size}/${TechTree.nodes.size} researched · pinch to zoom, drag to pan", color = UiColors.TextDim, fontSize = 11.sp)
                 }
+                MuteButton(save.soundOn) { engine.toggleSound() }
+                Spacer(Modifier.width(8.dp))
                 MoneyChip(save.money)
             }
             Row(Modifier.padding(top = 8.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -249,7 +261,7 @@ private fun NodeDetail(engine: GameEngine, save: SaveData, n: TechNode, onClose:
             NodeState.OWNED -> Text("✓ Researched", color = UiColors.Good, fontWeight = FontWeight.Black)
             NodeState.AFFORDABLE -> GameButton("RESEARCH · ${formatMoney(n.cost)}", Modifier.fillMaxWidth()) { engine.research(n.id) }
             NodeState.AVAILABLE -> GameButton("NEED ${formatMoney(n.cost - save.money)} MORE", Modifier.fillMaxWidth(), enabled = false) {}
-            NodeState.LOCKED -> GameButton("LOCKED · RESEARCH PREREQUISITES", Modifier.fillMaxWidth(), enabled = false) {}
+            NodeState.LOCKED -> GameButton(if (programClosed(save, n)) "🔒 LAND ON MARS FIRST" else "LOCKED · RESEARCH PREREQUISITES", Modifier.fillMaxWidth(), enabled = false) {}
         }
     }
 }

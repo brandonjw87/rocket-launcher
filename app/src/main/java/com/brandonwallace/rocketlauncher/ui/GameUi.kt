@@ -69,6 +69,7 @@ import com.brandonwallace.rocketlauncher.game.GameEngine
 import com.brandonwallace.rocketlauncher.game.HudState
 import com.brandonwallace.rocketlauncher.game.Milestone
 import com.brandonwallace.rocketlauncher.game.Mission
+import com.brandonwallace.rocketlauncher.game.MissionTarget
 import com.brandonwallace.rocketlauncher.game.Phase
 import com.brandonwallace.rocketlauncher.game.Physics
 import com.brandonwallace.rocketlauncher.game.RocketSpec
@@ -80,6 +81,7 @@ import com.brandonwallace.rocketlauncher.game.formatMoney
 import com.brandonwallace.rocketlauncher.game.formatSpeed
 import com.brandonwallace.rocketlauncher.game.missionFraction
 import com.brandonwallace.rocketlauncher.game.simulateAutopilot
+import com.brandonwallace.rocketlauncher.gl.Exhaust
 import com.brandonwallace.rocketlauncher.gl.GameView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -123,9 +125,15 @@ fun GameUi(engine: GameEngine, glView: GameView) {
                 }
             }
             if (hud.phase == Phase.FLIGHT || hud.phase == Phase.COUNTDOWN) Banner(hud)
-            AnimatedVisibility(hud.paused, enter = fadeIn(), exit = fadeOut()) { PauseOverlay(engine) }
+            AnimatedVisibility(hud.paused, enter = fadeIn(), exit = fadeOut()) { PauseOverlay(engine, save.soundOn) }
         }
     }
+}
+
+/** Quick mute: the same round button on every screen. Flips sound on/off and saves it. */
+@Composable
+fun MuteButton(on: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    IconButtonRound(if (on) "🔊" else "🔇", modifier, onClick)
 }
 
 /** Sim-time duration: seconds near Earth, hours/days for interplanetary flights. */
@@ -141,32 +149,35 @@ fun formatSimTime(s: Double): String = when {
 fun MenuScreen(engine: GameEngine, save: SaveData) {
     var showAch by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
-    Column(
-        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xB0050814), Color.Transparent, Color.Transparent, Color(0xD0050814)))).safeDrawingPadding().padding(20.dp),
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("ROCKET", style = TextStyle(brush = Brush.verticalGradient(listOf(Color.White, UiColors.Gold, UiColors.Orange))), fontSize = 60.sp, fontWeight = FontWeight.Black, letterSpacing = 8.sp)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("LAUNCHER", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Light, letterSpacing = 12.sp)
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xB0050814), Color.Transparent, Color.Transparent, Color(0xD0050814)))).safeDrawingPadding().padding(20.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("ROCKET", style = TextStyle(brush = Brush.verticalGradient(listOf(Color.White, UiColors.Gold, UiColors.Orange))), fontSize = 60.sp, fontWeight = FontWeight.Black, letterSpacing = 8.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("LAUNCHER", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Light, letterSpacing = 12.sp)
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Research · Launch · Earth → Moon → Mars → Jupiter", color = UiColors.Cyan, fontSize = 14.sp, letterSpacing = 1.sp)
             }
-            Spacer(Modifier.height(8.dp))
-            Text("Research · Launch · Earth → Moon → Mars", color = UiColors.Cyan, fontSize = 14.sp, letterSpacing = 1.sp)
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Panel(Modifier.fillMaxWidth()) {
+                    Row { StatCell("Best altitude", formatAlt(save.bestAltitude), Modifier.weight(1f)); StatCell("Flights", "${save.flights}", Modifier.weight(1f)) }
+                    Row { StatCell("Top speed", formatSpeed(save.bestSpeed), Modifier.weight(1f)); StatCell("Tech", "${save.tech.size}/${TechTree.nodes.size}", Modifier.weight(1f)) }
+                    MissionLine(save, Modifier.padding(top = 4.dp))
+                }
+                MoneyChip(save.money)
+                GameButton(if (save.flights == 0) "START" else "PLAY", Modifier.fillMaxWidth()) { engine.openHangar() }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GameButton("🔬 TECH", Modifier.weight(1f), color = UiColors.Cyan, filled = false, height = 48.dp) { engine.openTech() }
+                    GameButton("🏆 ${save.achievements.size}/${Achievement.entries.size}", Modifier.weight(1f), color = UiColors.Gold, filled = false, height = 48.dp) { showAch = true }
+                    GameButton("⚙️", Modifier.width(64.dp), color = UiColors.Text, filled = false, height = 48.dp) { showSettings = true }
+                }
+            }
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Panel(Modifier.fillMaxWidth()) {
-                Row { StatCell("Best altitude", formatAlt(save.bestAltitude), Modifier.weight(1f)); StatCell("Flights", "${save.flights}", Modifier.weight(1f)) }
-                Row { StatCell("Top speed", formatSpeed(save.bestSpeed), Modifier.weight(1f)); StatCell("Tech", "${save.tech.size}/${TechTree.nodes.size}", Modifier.weight(1f)) }
-                MissionLine(save, Modifier.padding(top = 4.dp))
-            }
-            MoneyChip(save.money)
-            GameButton(if (save.flights == 0) "START" else "PLAY", Modifier.fillMaxWidth()) { engine.openHangar() }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                GameButton("🔬 TECH", Modifier.weight(1f), color = UiColors.Cyan, filled = false, height = 48.dp) { engine.openTech() }
-                GameButton("🏆 ${save.achievements.size}/${Achievement.entries.size}", Modifier.weight(1f), color = UiColors.Gold, filled = false, height = 48.dp) { showAch = true }
-                GameButton("⚙️", Modifier.width(64.dp), color = UiColors.Text, filled = false, height = 48.dp) { showSettings = true }
-            }
-        }
+        MuteButton(save.soundOn, Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(12.dp)) { engine.toggleSound() }
     }
     if (showAch) AchievementsDialog(save) { showAch = false }
     if (showSettings) SettingsDialog(engine, save) { showSettings = false }
@@ -241,11 +252,12 @@ fun SettingsDialog(engine: GameEngine, save: SaveData, onDismiss: () -> Unit) {
 @Composable
 fun HangarScreen(engine: GameEngine, save: SaveData) {
     val spec = remember(save.tech) { RocketSpec(save.tech) }
-    val sim by produceState<com.brandonwallace.rocketlauncher.game.SimResult?>(null, save.tech) {
+    val target = MissionTarget.of(save)
+    val sim by produceState<com.brandonwallace.rocketlauncher.game.SimResult?>(null, save.tech, target) {
         value = null
-        value = withContext(Dispatchers.Default) { simulateAutopilot(spec) }
+        value = withContext(Dispatchers.Default) { simulateAutopilot(spec, target) }
     }
-    val affordable = TechTree.available(save.tech).count { it.cost <= save.money }
+    val affordable = TechTree.available(save).count { it.cost <= save.money }
     Box(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp)) {
         Row(Modifier.fillMaxWidth().align(Alignment.TopCenter), verticalAlignment = Alignment.CenterVertically) {
             IconButtonRound("←") { engine.openMenu() }
@@ -254,6 +266,8 @@ fun HangarScreen(engine: GameEngine, save: SaveData) {
                 Text("HANGAR", color = UiColors.Text, fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
                 Text("Flight ${save.flights + 1}", color = UiColors.TextDim, fontSize = 12.sp)
             }
+            MuteButton(save.soundOn) { engine.toggleSound() }
+            Spacer(Modifier.width(8.dp))
             MoneyChip(save.money)
         }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -269,9 +283,13 @@ fun HangarScreen(engine: GameEngine, save: SaveData) {
                     val s = sim
                     StatCell("Autopilot forecast", when {
                         s == null -> "…"
+                        s.europaLanded -> "🧊 Europa landing"
+                        s.jupiterOrbit -> "🪐 Jupiter orbit"
+                        s.reachedJupiter -> "🪐 Jupiter flyby"
                         s.marsLanded -> "🔴 Mars landing"
                         s.marsOrbit -> "🔴 Mars orbit"
-                        s.reachedMars -> "🔴 Mars flyby"
+                        s.reachedMars && s.target == MissionTarget.MARS -> "🔴 Mars flyby"
+                        s.reachedMars -> "🪐 past Mars · " + formatAlt(s.maxAlt)
                         s.passedMoon -> "🌕 past Moon · " + formatAlt(s.maxAlt)
                         else -> formatAlt(s.maxAlt)
                     }, Modifier.weight(1f), UiColors.Cyan)
@@ -284,8 +302,11 @@ fun HangarScreen(engine: GameEngine, save: SaveData) {
                 Text(
                     listOfNotNull(
                         "🤖 Autopilot",
+                        "🔥 " + Exhaust.firstStage(spec).name + (if (spec.stages.size > 1) " / " + Exhaust.upperStage(spec).name else ""),
                         if (spec.hazardRadar) "📡 Hazard radar" else null,
-                        if (spec.autoThrottle) (if (spec.navAutoCut) "🧠 Nav computer (max-Q throttle, Mars engine cut)" else "🧠 Flight computer (max-Q throttle)") else null,
+                        if (spec.autoThrottle) (if (spec.navAutoCut) "🧠 Nav computer (max-Q throttle, engine cut on course)" else "🧠 Flight computer (max-Q throttle)") else null,
+                        if (spec.deepSpacePower) "☀️ Deep-space power" else null,
+                        if (spec.jupiterRadiationReady) "☢️ Radiation vault" else null,
                     ).joinToString("   "),
                     color = UiColors.Good, fontSize = 12.sp)
             }
@@ -302,7 +323,10 @@ fun HangarScreen(engine: GameEngine, save: SaveData) {
 @Composable
 fun CountdownOverlay(engine: GameEngine, hud: HudState) {
     Box(Modifier.fillMaxSize().safeDrawingPadding()) {
-        IconButtonRound("II", Modifier.align(Alignment.TopEnd).padding(12.dp)) { engine.setPaused(true) }
+        Column(Modifier.align(Alignment.TopEnd).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            IconButtonRound("II") { engine.setPaused(true) }
+            MuteButton(hud.soundOn) { engine.toggleSound() }
+        }
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
             AnimatedContent(hud.countdown, transitionSpec = { (fadeIn(tween(150)) + scaleIn(tween(250), initialScale = 1.6f)) togetherWith fadeOut(tween(150)) }, label = "cd") { c ->
                 Text(if (c > 0) "$c" else "IGNITION", color = Color.White, fontSize = if (c > 0) 120.sp else 48.sp, fontWeight = FontWeight.Black)
@@ -353,7 +377,10 @@ fun FlightHud(engine: GameEngine, hud: HudState) {
             Text(hud.zone, color = UiColors.TextDim, fontSize = 11.sp)
             if (hud.warp > 1.5f) Text("⏩ time warp ×%,d".format(hud.warp.toInt()), color = UiColors.Gold, fontSize = 11.sp)
         }
-        IconButtonRound("II", Modifier.align(Alignment.TopEnd)) { engine.setPaused(true) }
+        Column(Modifier.align(Alignment.TopEnd), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            IconButtonRound("II") { engine.setPaused(true) }
+            MuteButton(hud.soundOn) { engine.toggleSound() }
+        }
         if (hud.radar.isNotEmpty() || hud.autoThrottling || hud.evading) Column(Modifier.align(Alignment.TopCenter).padding(top = 96.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             if (hud.radar.isNotEmpty()) RadarStrip(hud.radar)
             if (hud.evading) Text("🤖 AUTOPILOT: EVADING HAZARD", color = UiColors.Cyan, fontSize = 11.sp, fontWeight = FontWeight.Black,
@@ -370,12 +397,13 @@ fun FlightHud(engine: GameEngine, hud: HudState) {
             VBar("HULL", hud.hull, if (hud.hull > 0.35f) UiColors.Good else UiColors.Bad, flash = hud.hull < 0.25f)
         }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            if (hud.marsBound && !hud.ending) {
+            if (hud.bound && !hud.ending) {
                 val note = if (hud.arrivalNote.isNotEmpty()) " · " + hud.arrivalNote else ""
+                val t = hud.target
                 val head = when {
-                    hud.navCut -> "🧠 Nav computer: engines off — 🔴 on course for Mars"
-                    hud.throttle > 0.05f -> "🔴 On course for Mars — autopilot still burning"
-                    else -> "🔴 Coasting to Mars"
+                    hud.navCut -> "🧠 Nav computer: engines off — ${t.icon} on course for ${t.title}"
+                    hud.throttle > 0.05f -> "${t.icon} On course for ${t.title} — autopilot still burning"
+                    else -> "${t.icon} Coasting to ${t.title}"
                 }
                 Text(head + note,
                     textAlign = TextAlign.Center,
@@ -394,7 +422,7 @@ fun FlightHud(engine: GameEngine, hud: HudState) {
                     }
                 }
                 Spacer(Modifier.width(10.dp))
-                ProgressLine(hud.missionProgress, Modifier.width(150.dp), right = "🔴")
+                ProgressLine(hud.missionProgress, Modifier.width(150.dp), right = hud.target.icon)
             }
         }
     }
@@ -421,11 +449,12 @@ fun Banner(hud: HudState) {
 }
 
 @Composable
-fun PauseOverlay(engine: GameEngine) {
+fun PauseOverlay(engine: GameEngine, soundOn: Boolean) {
     Box(Modifier.fillMaxSize().background(Color(0xAA000000)).clickable(enabled = true, onClick = {}), contentAlignment = Alignment.Center) {
         Panel(Modifier.width(290.dp), padding = 22.dp) {
             Text("PAUSED", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
             GameButton("RESUME", Modifier.fillMaxWidth()) { engine.setPaused(false) }
+            GameButton(if (soundOn) "🔊 SOUND ON" else "🔇 SOUND OFF", Modifier.fillMaxWidth(), color = UiColors.Cyan, filled = false, height = 48.dp) { engine.toggleSound() }
             GameButton("ABORT FLIGHT", Modifier.fillMaxWidth(), color = UiColors.Bad, filled = false, height = 48.dp) { engine.abortFlight() }
         }
     }
@@ -440,16 +469,27 @@ fun ResultsScreen(engine: GameEngine, r: FlightResult, save: SaveData) {
             Modifier.fillMaxWidth().glass(RoundedCornerShape(26.dp), UiColors.Gold.copy(alpha = 0.35f)).verticalScroll(rememberScrollState()).padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(when { r.marsLanded -> "🔴"; r.marsOrbit -> "🛰️"; r.marsReached -> "🔴"; r.reason.contains("destroyed") -> "💥"; r.moonPassed -> "🌕"; else -> "🚀" }, fontSize = 52.sp)
+            Text(when {
+                r.europaLanded -> "🧊"; r.jupiterReached -> "🪐"; r.marsLanded -> "🔴"; r.marsOrbit -> "🛰️"
+                r.reason.contains("destroyed") -> "💥"; r.marsReached -> "🔴"; r.moonPassed -> "🌕"; else -> "🚀"
+            }, fontSize = 52.sp)
             Text(r.reason, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
-            if (r.marsLanded) Text("Humanity's rocket stands on Mars! Keep flying to finish the tech tree and set records.", color = UiColors.Gold, textAlign = TextAlign.Center, fontSize = 13.sp)
-            else if (r.moonPassed && !r.marsReached) Text("Past the Moon! Keep upgrading to push on to Mars.", color = UiColors.Gold, textAlign = TextAlign.Center, fontSize = 13.sp)
+            val note = when {
+                r.europaLanded -> "A lander stands on Europa's ice, 588 million km from home! Keep flying to finish the tech tree and set records."
+                r.jupiterOrbit -> "In orbit around the king of the planets! Europa is next."
+                r.marsLanded && save.marsLandings == 1 -> "Humanity's rocket stands on Mars! 🪐 The Jupiter program is now open in the tech tree."
+                r.marsLanded -> "Humanity's rocket stands on Mars! Keep flying to finish the tech tree and set records."
+                r.target == MissionTarget.JUPITER && r.marsReached && !r.jupiterReached -> "Past Mars and on toward Jupiter! Keep upgrading to make it all the way."
+                r.moonPassed && !r.marsReached -> "Past the Moon! Keep upgrading to push on to Mars."
+                else -> ""
+            }
+            if (note.isNotEmpty()) Text(note, color = UiColors.Gold, textAlign = TextAlign.Center, fontSize = 13.sp)
             Spacer(Modifier.height(4.dp))
             ResultRow("Max altitude", formatAlt(r.maxAlt), "Altitude" in r.records)
             ResultRow("Top speed", formatSpeed(r.topSpeed), "Speed" in r.records)
             ResultRow("Flight time", formatSimTime(r.time), false)
             ResultRow("Hazards hit", "${r.hits}", false)
-            ResultRow("Mission", "%.0f%% of the way to Mars".format(missionFraction(r.maxAlt) * 100), false)
+            ResultRow("Mission", "%.0f%% of the way to %s".format(missionFraction(r.maxAlt, r.target) * 100, r.target.title), false)
             Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
             ResultRow("Flight performance", "+" + formatMoney(r.performancePay), false, UiColors.Gold)
             for (m in r.milestones) ResultRow("⭐ ${m.title}", "+" + formatMoney(m.bonus), false, UiColors.Gold)
@@ -471,6 +511,7 @@ fun ResultsScreen(engine: GameEngine, r: FlightResult, save: SaveData) {
             }
             GameButton("HANGAR", Modifier.fillMaxWidth(), color = UiColors.Text, filled = false, height = 44.dp) { engine.openHangar() }
         }
+        MuteButton(save.soundOn, Modifier.align(Alignment.TopEnd)) { engine.toggleSound() }
     }
 }
 
@@ -485,7 +526,7 @@ fun ResultRow(label: String, value: String, record: Boolean, color: Color = Colo
 }
 
 
-// ---------------------------------------------------------------- the one mission (Earth → Moon → Mars)
+// ---------------------------------------------------------------- the one mission (Earth → Moon → Mars → Jupiter)
 
 /** Step line of the single Moon→Mars mission with the next objective; drawn on the menu. */
 @Composable
@@ -497,13 +538,13 @@ fun MissionLine(save: SaveData, modifier: Modifier = Modifier) {
             for ((i, m) in Mission.entries.withIndex()) {
                 val ok = m.done(save)
                 val icon = m.icon
-                Box(Modifier.size(24.dp).clip(CircleShape).background(if (ok) UiColors.Gold else Color(0x33FFFFFF)), contentAlignment = Alignment.Center) {
-                    Text(if (ok) "✓" else icon, fontSize = 11.sp, color = if (ok) UiColors.Ink else Color.White, fontWeight = FontWeight.Black)
+                Box(Modifier.size(22.dp).clip(CircleShape).background(if (ok) UiColors.Gold else Color(0x33FFFFFF)), contentAlignment = Alignment.Center) {
+                    Text(if (ok) "✓" else icon, fontSize = 10.sp, color = if (ok) UiColors.Ink else Color.White, fontWeight = FontWeight.Black)
                 }
                 if (i < Mission.entries.size - 1) Box(Modifier.weight(1f).height(3.dp).background(if (ok) UiColors.Gold else Color(0x33FFFFFF)))
             }
         }
-        Text(if (next == null) "Mission complete — landed on Mars!" else "MISSION STEP ${done + 1}/${Mission.entries.size}: ${next.title}",
+        Text(if (next == null) "Mission complete — landed on Europa!" else "MISSION STEP ${done + 1}/${Mission.entries.size}: ${next.title}",
             color = UiColors.Text, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
     }
 }
@@ -512,16 +553,29 @@ fun MissionLine(save: SaveData, modifier: Modifier = Modifier) {
 @Composable
 fun MissionPanel(save: SaveData, spec: RocketSpec) {
     val next = Mission.next(save)
+    val jupiter = MissionTarget.of(save) == MissionTarget.JUPITER
     Panel(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                SectionLabel("Mission: Earth → Moon → Mars · step ${(Mission.doneCount(save) + 1).coerceAtMost(Mission.entries.size)}/${Mission.entries.size}")
+                SectionLabel("Mission: Earth → Moon → Mars → Jupiter · step ${(Mission.doneCount(save) + 1).coerceAtMost(Mission.entries.size)}/${Mission.entries.size}")
                 Text(next?.title ?: "Mission complete", color = UiColors.Text, fontSize = 15.sp, fontWeight = FontWeight.Black)
                 Text(next?.desc ?: "Keep flying to finish the tech tree and set records.", color = UiColors.TextDim, fontSize = 11.sp)
             }
-            Text(next?.icon ?: "🔴", fontSize = 22.sp)
+            Text(next?.icon ?: "🧊", fontSize = 22.sp)
         }
-        if (save.milestones.contains(Milestone.MOON) && !spec.marsEntryReady)
-            Text("Landing on Mars needs PICA-X Aeroshell + Supersonic Parachute (Thermal branch)", color = UiColors.Gold, fontSize = 11.sp)
+        val hint = when {
+            !jupiter && save.milestones.contains(Milestone.MOON) && !spec.marsEntryReady ->
+                "Landing on Mars needs PICA-X Aeroshell + Supersonic Parachute (Thermal branch)"
+            jupiter && save.tech.none { TechTree.byId[it]?.jupiterProgram == true } ->
+                "🪐 Jupiter program unlocked: new upgrades in tech tiers 10–12"
+            jupiter && !spec.deepSpacePower ->
+                "Past Mars the nav computer needs Juno-Class Solar Arrays (Avionics) to save fuel"
+            jupiter && !spec.jupiterRadiationReady ->
+                "Jupiter orbit needs the Titanium Radiation Vault (Thermal branch)"
+            jupiter && !spec.europaLandingReady ->
+                "Landing on Europa needs the Europa Lander + Radiation-Hardened Electronics"
+            else -> ""
+        }
+        if (hint.isNotEmpty()) Text(hint, color = UiColors.Gold, fontSize = 11.sp)
     }
 }

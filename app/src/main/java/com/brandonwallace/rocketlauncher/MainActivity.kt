@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
             override fun save(data: String) { prefs.edit().putString("save", data).apply() }
             override fun saveNow(data: String) { prefs.edit().putString("save", data).commit() }
         })
-        // write the migrated save straight away (schema 3), so the new format is on disk even before the first flight
+        // write the migrated save straight away (current schema), so the new format is on disk even before the first flight
         if (raw != null && schema < SaveData.SAVE_SCHEMA_VERSION) engine.persistNow()
         sound = SoundEngine()
         engine.sfxListener = { sound.play(it) }
