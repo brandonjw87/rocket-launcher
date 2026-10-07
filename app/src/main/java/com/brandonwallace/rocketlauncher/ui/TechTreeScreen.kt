@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brandonwallace.rocketlauncher.game.Branch
 import com.brandonwallace.rocketlauncher.game.GameEngine
+import com.brandonwallace.rocketlauncher.game.Program
 import com.brandonwallace.rocketlauncher.game.RocketSpec
 import com.brandonwallace.rocketlauncher.game.SaveData
 import com.brandonwallace.rocketlauncher.game.Stat
@@ -74,8 +75,19 @@ fun nodeState(save: SaveData, n: TechNode): NodeState = when {
     else -> NodeState.LOCKED
 }
 
-/** Jupiter-program node that is still closed because the rocket has not landed on Mars yet. */
+/** Jupiter- or Saturn-program node that is still closed (the rocket has not landed on Mars / Europa yet). */
 fun programClosed(save: SaveData, n: TechNode): Boolean = n.id !in save.tech && !TechTree.programOpen(save, n)
+
+/** Where the rocket has to land first to open this node's program. */
+fun programLandingNeeded(n: TechNode): String = if (n.program == Program.SATURN) "Europa" else "Mars"
+
+/** Tier column label: tiers 7-9 are the Mars program, 10-12 Jupiter, 13-24 Saturn. */
+fun tierLabel(t: Int): String = "TIER ${t + 1}" + when {
+    t >= TechTree.SATURN_TIER -> " · SATURN"
+    t >= TechTree.JUPITER_TIER -> " · JUPITER"
+    t >= TechTree.MARS_TIER -> " · MARS"
+    else -> ""
+}
 
 fun statLabel(s: Stat): String = when (s) {
     Stat.ENGINE -> "Engine"; Stat.FUEL -> "Fuel tanks"; Stat.AERO -> "Aerodynamics"; Stat.HULL -> "Hull"
@@ -83,6 +95,8 @@ fun statLabel(s: Stat): String = when (s) {
     Stat.AVIONICS -> "Avionics"; Stat.VACUUM -> "Vacuum nozzle"; Stat.REGEN -> "Regen cooling"; Stat.SEP -> "Fast separation"
     Stat.NUCLEAR -> "Nuclear / plasma upper stage"; Stat.EDL -> "Mars landing (EDL)"
     Stat.GIMBAL -> "Engine gimbal"; Stat.POWER -> "Deep-space power"; Stat.RADIATION -> "Radiation shielding"; Stat.LANDER -> "Europa lander"
+    Stat.SLING -> "Jupiter slingshot"; Stat.CRUISE -> "Cruise propulsion"; Stat.RINGS -> "Ring shield"; Stat.AEROCAP -> "Saturn aerocapture"
+    Stat.TITAN -> "Titan landing"; Stat.PLUME -> "Plume spectrometer"
 }
 
 /**
@@ -130,8 +144,7 @@ fun TechTreeScreen(engine: GameEngine, save: SaveData) {
                 // tier column guides
                 for (t in 0 until TechTree.tiers) {
                     drawRoundRect(Color(0x0FFFFFFF), Offset(pad + t * colW - 10f, pad - 50f), Size(nodeW + 20f, TechTree.rows * rowH + 60f), CornerRadius(30f))
-                    val program = when { t >= TechTree.JUPITER_TIER -> " · JUPITER"; t >= 6 -> " · MARS"; else -> "" }
-                    drawText(tm, "TIER ${t + 1}$program", Offset(pad + t * colW, pad - 44f), TextStyle(color = Color(0x88FFFFFF), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp),
+                    drawText(tm, tierLabel(t), Offset(pad + t * colW, pad - 44f), TextStyle(color = Color(0x88FFFFFF), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp),
                         maxLines = 1, size = Size(nodeW, 40f))
                 }
                 // edges
@@ -170,7 +183,7 @@ fun TechTreeScreen(engine: GameEngine, save: SaveData) {
                         overflow = TextOverflow.Ellipsis, maxLines = 1, size = Size(nodeW - 30f, nodeH / 2))
                     val sub = when {
                         st == NodeState.OWNED -> "✓ researched"
-                        programClosed(save, n) -> "🔒 land on Mars"
+                        programClosed(save, n) -> "🔒 land on ${programLandingNeeded(n)}"
                         st == NodeState.LOCKED -> "🔒 ${formatMoney(n.cost)}"
                         else -> formatMoney(n.cost)
                     }
@@ -261,7 +274,7 @@ private fun NodeDetail(engine: GameEngine, save: SaveData, n: TechNode, onClose:
             NodeState.OWNED -> Text("✓ Researched", color = UiColors.Good, fontWeight = FontWeight.Black)
             NodeState.AFFORDABLE -> GameButton("RESEARCH · ${formatMoney(n.cost)}", Modifier.fillMaxWidth()) { engine.research(n.id) }
             NodeState.AVAILABLE -> GameButton("NEED ${formatMoney(n.cost - save.money)} MORE", Modifier.fillMaxWidth(), enabled = false) {}
-            NodeState.LOCKED -> GameButton(if (programClosed(save, n)) "🔒 LAND ON MARS FIRST" else "LOCKED · RESEARCH PREREQUISITES", Modifier.fillMaxWidth(), enabled = false) {}
+            NodeState.LOCKED -> GameButton(if (programClosed(save, n)) "🔒 LAND ON ${programLandingNeeded(n).uppercase()} FIRST" else "LOCKED · RESEARCH PREREQUISITES", Modifier.fillMaxWidth(), enabled = false) {}
         }
     }
 }
