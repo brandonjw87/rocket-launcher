@@ -27,3 +27,11 @@ build.log
 
 # Emulator test screenshots
 test-shots/
+
+# Signing keys / secrets (never commit)
+*.jks
+*.keystore
+*.p12
+*.pem
+keystore.properties
+*keystore.properties

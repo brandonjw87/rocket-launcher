@@ -2,7 +2,7 @@
 
 Android rocket game (Kotlin, Jetpack Compose UI, OpenGL ES 3 renderer). Built from Rocket Ascent v2.
 
-**1.1 (versionCode 2)**
+**1.1 (versionCode 2; Google Play build: versionCode 3)**
 
 - **Auto launcher:** the rocket flies itself. No throttle, steering or tilt controls: you research upgrades in the
   tech tree and press LAUNCH. The autopilot burns at full throttle (stages/boosters separate automatically), the
@@ -26,3 +26,7 @@ newer builds are preserved, and the untouched pre-migration save is kept once as
 written on every change and synchronously on pause/stop.
 
 Build: `./gradlew assembleDebug` (tests: `./gradlew testDebugUnitTest`).
+
+Release signing (Google Play): `./gradlew bundleRelease` (AAB) / `assembleRelease` (APK) are signed with the Play upload key,
+read from an external properties file (`-ProcketLauncherKeystoreProps=<path>`, env `ROCKETLAUNCHER_KEYSTORE_PROPS`, or the default
+`C:/Users/Brandon/AndroidKeys/rocketlauncher-keystore.properties`). Keystores and that file are never committed. Use Play App Signing.

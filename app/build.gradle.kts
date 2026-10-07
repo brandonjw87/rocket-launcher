@@ -1,3 +1,4 @@
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -5,6 +6,20 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Release (Play upload key) signing. Secrets live OUTSIDE the repo in a properties file:
+//   -ProcketLauncherKeystoreProps=<path>, or env ROCKETLAUNCHER_KEYSTORE_PROPS, or the default below.
+// Keys: storeFile, storePassword, keyAlias, keyPassword. If the file is missing, debug builds still
+// work and release outputs are simply unsigned.
+val releaseKeystorePropsFile = file(
+    (findProperty("rocketLauncherKeystoreProps") as String?)
+        ?: System.getenv("ROCKETLAUNCHER_KEYSTORE_PROPS")
+        ?: "C:/Users/Brandon/AndroidKeys/rocketlauncher-keystore.properties"
+)
+val releaseKeystoreProps = Properties().apply {
+    if (releaseKeystorePropsFile.isFile) releaseKeystorePropsFile.inputStream().use { load(it) }
+}
+val hasReleaseKeystore = releaseKeystorePropsFile.isFile
 
 android {
     namespace = "com.brandonwallace.rocketlauncher"
@@ -15,11 +30,24 @@ android {
         applicationId = "com.brandonwallace.rocketlauncher"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
+        versionCode = 3
         versionName = "1.1"
     }
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = file(releaseKeystoreProps.getProperty("storeFile"))
+                storePassword = releaseKeystoreProps.getProperty("storePassword")
+                keyAlias = releaseKeystoreProps.getProperty("keyAlias")
+                keyPassword = releaseKeystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
     buildTypes {
-        release { isMinifyEnabled = false }
+        release {
+            isMinifyEnabled = false
+            if (hasReleaseKeystore) signingConfig = signingConfigs.getByName("release")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
