@@ -77,7 +77,7 @@ in vec3 vWPos; in vec3 vN; in vec3 vCol; in vec2 vMat; in vec3 vObj; in vec4 vSh
 out vec4 oColor;
 uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uSkyAmb; uniform vec3 uGroundAmb; uniform vec3 uHorizon;
 uniform vec3 uTint; uniform vec3 uEmissive; uniform float uRoughMul; uniform float uAlpha;
-uniform int uMatType;          // 0 plain,1 painted/alu body,2 carbon,3 foam,4 stainless,5 tiles,6 terrain,7 engine,8 metal,9 pad
+uniform int uMatType;          // 0 plain,1 painted/alu body,2 carbon,3 foam,4 stainless,5 tiles,6 terrain,7 engine,8 metal,9 pad,10 gold foil
 uniform vec4 uPanel;           // ring spacing, seam count, extra, paint pattern
 uniform sampler2D uDecalTex; uniform vec4 uDecalA; uniform vec4 uDecalB;
 uniform sampler2DShadow uShadowMap; uniform float uShadowOn; uniform float uShadowTexel; uniform int uShadowTaps;
@@ -203,7 +203,19 @@ void main() {
         float tubes = uPanel.z > 0.5 ? 0.5 + 0.5 * cos(atan(vObj.z, vObj.x) * 90.0) : 0.5;
         albedo *= 0.8 + 0.4 * tubes;
         float hot = uPanel.x > 0.0 ? smoothstep(uPanel.y, uPanel.x, vObj.y) : 0.0;
-        emissive += uEmissive * 0.0 + vec3(1.0, 0.35, 0.08) * hot * uDecalB.z;
+        // uEmissive carries the bell glow colour of this engine's exhaust type (orange chemical, violet plasma...)
+        vec3 glowCol = dot(uEmissive, uEmissive) > 1e-6 ? uEmissive : vec3(1.0, 0.35, 0.08);
+        emissive = glowCol * hot * uDecalB.z;
+    } else if (uMatType == 10) {
+        // crinkled gold multi-layer insulation: wrinkled normals + streaky reflectance
+        float ang = atan(vObj.z, vObj.x);
+        vec2 q = vec2(ang * length(vObj.xz), vObj.y);
+        float n1 = fbm2(q * 6.0, 3);
+        float n2 = vnoise2(q * 23.0);
+        N = normalize(N + 0.32 * vec3(n1 - 0.5, n2 - 0.5, n1 - n2));
+        albedo *= 0.8 + 0.4 * n1;
+        metal = 1.0;
+        rough = clamp(0.2 + 0.25 * n2, 0.12, 0.5) * uRoughMul;
     } else if (uMatType == 8) {
         float g = fbm2(wp.xz * 0.7 + wp.y * 0.5, 2);
         albedo *= 0.8 + 0.35 * g;
@@ -366,7 +378,15 @@ in vec2 vNdc; out vec4 o;
 uniform mat4 uInvVP; uniform sampler2D uLut;
 uniform vec3 uSun; uniform float uSunI; uniform vec3 uMoonPos; uniform float uMoonR;
 uniform vec3 uMarsDir; uniform float uMarsD;   // Mars: unit direction + centre distance in Mars radii (0 = hidden)
+uniform vec3 uJupDir; uniform float uJupD;     // Jupiter: unit direction + centre distance in Jupiter radii (0 = hidden)
 uniform float uTime; uniform float uDeckKm; uniform float uOutScale; uniform vec2 uPadKm;
+// Galilean moons around Jupiter, in Jupiter radii (basis: t1, t2, toward the viewer) and their radii
+const vec4 GAL0 = vec4(5.2, 0.4, 2.8, 0.026);      // Io
+const vec4 GAL1 = vec4(-8.0, -0.6, 4.9, 0.0224);   // Europa
+const vec4 GAL2 = vec4(12.5, 1.0, -8.0, 0.0376);   // Ganymede
+const vec4 GAL3 = vec4(-22.0, 1.5, 14.0, 0.0345);  // Callisto
+vec3 galColor(int i) { return i == 0 ? vec3(0.85, 0.75, 0.35) : i == 1 ? vec3(0.86, 0.82, 0.74) : i == 2 ? vec3(0.55, 0.5, 0.45) : vec3(0.36, 0.32, 0.28); }
+vec4 galData(int i) { return i == 0 ? GAL0 : i == 1 ? GAL1 : i == 2 ? GAL2 : GAL3; }
 vec3 cloudColor(float cov) { return vec3(1.0) * (0.75 + 0.25 * cov); }
 float cloudCover(vec3 n, float distKm) {
     float big = fbm3(n * 9.0, 4);
@@ -493,6 +513,7 @@ void main() {
             } else if (ca > 0.0) {
                 float pr = sqrt(p2);
                 // thin dusty atmosphere halo just outside the limb (sunlit side)
+                // (also used on Jupiter flights: Mars sweeps past during the flyby)
                 if (pr < 1.05) {
                     vec3 limbN = normalize(rd * (uMarsD * ca) - uMarsDir * uMarsD);
                     bg += vec3(0.95, 0.58, 0.38) * uSunI * 0.035 * (1.0 - (pr - 1.0) / 0.05) * smoothstep(-0.2, 0.4, dot(limbN, bodyLight(uMarsDir)));
@@ -501,6 +522,64 @@ void main() {
                 float minR = 0.0016;
                 float angR = 1.0 / uMarsD;
                 if (angR < minR) bg += vec3(1.0, 0.42, 0.22) * uSunI * 0.9 * smoothstep(minR, minR * 0.25, sqrt(s2)) * smoothstep(40.0, 90.0, uAltKm);
+            }
+        }
+        // Jupiter: banded clouds, the Great Red Spot, darker poles, and the four Galilean moons nearby
+        if (uJupD > 0.0) {
+            const float JUP_RKM = 69911.0;
+            float ca = dot(rd, uJupDir);
+            vec3 cr = cross(rd, uJupDir);
+            float s2 = dot(cr, cr);
+            float p2 = s2 * uJupD * uJupD;
+            vec3 t1 = normalize(cross(uJupDir, vec3(0.0, 0.0, 1.0)));
+            vec3 t2 = cross(t1, uJupDir);
+            if (ca > 0.0 && p2 < 1.0) {
+                float tm = uJupD * ca - sqrt(max(1.0 - p2, 0.0));
+                if (tm * JUP_RKM < tHit) {
+                    vec3 jn = normalize(rd * tm - uJupDir * uJupD);
+                    float lat = dot(jn, t2);
+                    float lon = dot(jn, t1);
+                    float turb = fbm3(jn * 5.0, 4);
+                    float band = sin(lat * 21.0 + turb * 2.6 + sin(lat * 7.0) * 1.3);
+                    vec3 cream = vec3(0.87, 0.80, 0.67), tanc = vec3(0.72, 0.52, 0.34), brown = vec3(0.46, 0.31, 0.21);
+                    vec3 alb = mix(cream, tanc, smoothstep(-0.2, 0.6, band));
+                    alb = mix(alb, brown, smoothstep(0.78, 0.97, band) * 0.6);
+                    alb *= 0.86 + 0.28 * fbm3(vec3(lat * 70.0, lon * 4.0 + turb * 3.0, turb), 3);
+                    vec2 g = vec2((lon - 0.25) * 3.2, (lat + 0.36) * 8.5);
+                    float grs = 1.0 - smoothstep(0.55, 1.0, length(g) + (turb - 0.5) * 0.3);
+                    alb = mix(alb, vec3(0.74, 0.34, 0.2), grs * 0.85);
+                    alb *= 1.0 - 0.35 * smoothstep(0.72, 0.98, abs(lat));
+                    vec3 jl = bodyLight(uJupDir);
+                    float nl = max(dot(jn, jl), 0.0);
+                    float view = max(dot(jn, -rd), 0.0);
+                    vec3 c = alb / PI * uSunI * 0.55 * nl * (0.75 + 0.25 * view);   // 5.2 AU: dimmer sunlight, limb darkening
+                    bg = c;
+                    tHit = tm * JUP_RKM;
+                }
+            } else if (ca > 0.0) {
+                float minR = 0.0016;
+                if (1.0 / uJupD < minR) bg += vec3(1.0, 0.86, 0.62) * uSunI * 0.9 * smoothstep(minR, minR * 0.25, sqrt(s2)) * smoothstep(40.0, 90.0, uAltKm);
+            }
+            if (uJupD < 300.0) {
+                for (int i = 0; i < 4; i++) {
+                    vec4 gd = galData(i);
+                    vec3 C = uJupDir * uJupD + t1 * gd.x + t2 * gd.y - uJupDir * gd.z;
+                    float b = dot(rd, C);
+                    vec3 cc = cross(rd, C);
+                    float pp = dot(cc, cc);
+                    float rr = gd.w * gd.w;
+                    if (b > 0.0 && pp < rr) {
+                        float tg = b - sqrt(rr - pp);
+                        if (tg * JUP_RKM < tHit) {
+                            vec3 gn = normalize(rd * tg - C);
+                            float spots = fbm3(gn * 4.0 + float(i) * 7.0, 3);
+                            vec3 alb = galColor(i) * (0.75 + 0.5 * spots);
+                            if (i == 1) alb = mix(alb, vec3(0.62, 0.42, 0.3), smoothstep(0.55, 0.62, fbm3(gn * 9.0, 3)) * 0.6);   // Europa's reddish cracks
+                            bg = alb / PI * uSunI * 0.6 * max(dot(gn, bodyLight(normalize(C))), 0.0);
+                            tHit = tg * JUP_RKM;
+                        }
+                    }
+                }
             }
         }
     }
@@ -533,6 +612,7 @@ layout(location = 1) in vec2 aMag;   // brightness, colour temperature (0 = red,
 uniform mat4 uVP; uniform float uRkm; uniform float uC0; uniform float uAltKm; uniform float uPx;
 uniform vec3 uMoonPos; uniform float uMoonR;
 uniform vec3 uMarsDir; uniform float uMarsD;
+uniform vec3 uJupDir; uniform float uJupD;
 out vec3 vC;
 void main() {
     vec3 d = normalize(aDir);
@@ -542,6 +622,8 @@ void main() {
     if (uMoonR > 0.0 && mb < 0.0 && mb * mb - dot(uMoonPos, uMoonPos) + uMoonR * uMoonR > 0.0) hidden = true;
     vec3 mc = cross(d, uMarsDir);
     if (uMarsD > 0.0 && dot(d, uMarsDir) > 0.0 && dot(mc, mc) * uMarsD * uMarsD < 1.1) hidden = true;
+    vec3 jc = cross(d, uJupDir);
+    if (uJupD > 0.0 && dot(d, uJupDir) > 0.0 && dot(jc, jc) * uJupD * uJupD < 1.1) hidden = true;
     gl_Position = uVP * vec4(d, 1.0);
     gl_Position.z = gl_Position.w * 0.9999;
     gl_PointSize = hidden ? 0.0 : uPx * (1.2 + 1.6 * aMag.x);
@@ -576,6 +658,7 @@ void main() {
     val PLUME_FS = V + FP + """
 in float vT; in vec3 vN; in vec3 vW; out vec4 o;
 uniform vec3 uCore; uniform vec3 uOuter; uniform float uIntensity; uniform float uDiamonds; uniform float uTime; uniform float uOutScale; uniform float uSeed;
+uniform vec3 uDiaCol;   // mach-diamond / plasma-striation colour (per exhaust type)
 void main() {
     vec3 V = normalize(-vW);
     float facing = abs(dot(normalize(vN), V));
@@ -585,7 +668,7 @@ void main() {
     float flick = 0.85 + 0.15 * sin(t * 37.0 - uTime * 61.0 + uSeed) * sin(t * 13.0 - uTime * 23.0);
     vec3 col = mix(uCore, uOuter, smoothstep(0.0, 0.7, t));
     float dia = uDiamonds * pow(0.5 + 0.5 * cos(t * 6.2831 * 5.0), 8.0) * (1.0 - smoothstep(0.1, 0.6, t));
-    vec3 c = col * (body * along * flick) + vec3(1.0, 0.9, 0.75) * dia * body;
+    vec3 c = col * (body * along * flick) + uDiaCol * dia * body;
     o = vec4(c * uIntensity * uOutScale, 1.0);
 }
 """

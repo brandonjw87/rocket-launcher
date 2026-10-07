@@ -55,6 +55,7 @@ class SoundEngine {
         val dt = 1.0 / rate
         while (running) {
             while (true) { val s = queue.poll() ?: break; if (voices.size < 16) voices.add(Voice(s)) }
+            if (!enabled) voices.clear()   // muted: cut effects that were already playing
             val targetLevel: Double = if (enabled) engineLevel * (0.2 + 0.8 * atmosphere) else 0.0
             for (i in buf.indices) {
                 level += (targetLevel - level) * 0.0008

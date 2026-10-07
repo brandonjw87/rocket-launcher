@@ -409,6 +409,46 @@ class SmokeTest {
         assertEquals(s, GameEngine(h.store).save.value)
     }
 
+    @Test fun upgradesChangeTheExhaustAndTheRocket() {
+        // walk the propulsion line: every engine family has its own exhaust look
+        val path = listOf(emptySet(), setOf("P_GRAIN"), setOf("P_GRAIN", "P_LIQUID"), setOf("P_GRAIN", "P_LIQUID", "P_TURBO", "P_GG"),
+            setOf("P_GRAIN", "P_LIQUID", "P_TURBO", "P_GG", "P_STAGED"), setOf("P_GRAIN", "P_LIQUID", "P_TURBO", "P_GG", "P_STAGED", "P_FFSC"),
+            setOf("P_GRAIN", "P_LIQUID", "P_TURBO", "P_GG", "P_STAGED", "P_FFSC", "P_METHALOX"))
+        val names = path.map { com.brandonwallace.rocketlauncher.gl.Exhaust.firstStage(RocketSpec(it)).name }
+        println("first-stage exhaust along the engine line: $names")
+        assertEquals("every engine family looks different", names.size, names.toSet().size)
+        val kero = com.brandonwallace.rocketlauncher.gl.Exhaust.firstStage(RocketSpec(path[2]))
+        val metha = com.brandonwallace.rocketlauncher.gl.Exhaust.firstStage(RocketSpec(path[6]))
+        assertTrue("methalox burns blue", metha.core[2] > metha.core[0] && kero.core[0] > kero.core[2])
+        assertTrue("methalox is almost smokeless", metha.smoke < kero.smoke / 2)
+        assertTrue("gas-generator soot trail", com.brandonwallace.rocketlauncher.gl.Exhaust.firstStage(RocketSpec(path[3])).soot > 0f)
+        assertTrue("…gone with staged combustion", com.brandonwallace.rocketlauncher.gl.Exhaust.firstStage(RocketSpec(path[4])).soot == 0f)
+        val all = TechTree.nodes.map { it.id }.toSet()
+        val up = listOf(emptySet(), setOf("P_NTR"), setOf("P_NTR", "P_NTR2"), setOf("P_NTR", "P_NTR2", "P_PLASMA"), setOf("P_NTR", "P_NTR2", "P_PLASMA", "P_PLASMA2"))
+            .map { com.brandonwallace.rocketlauncher.gl.Exhaust.upperStage(RocketSpec(all.filter { id -> !id.startsWith("P_NTR") && !id.startsWith("P_PLASMA") }.toSet() + it)) }
+        println("upper-stage exhaust: ${up.map { it.name }}")
+        assertEquals(up.size, up.map { it.name }.toSet().size)
+        assertTrue("plasma is violet and longer", up[3].core[2] > up[3].core[1] * 2 && up[3].length > up[0].length)
+        assertTrue(up[3].striations)
+        // the model grows the new hardware
+        val maxed = RocketModel(RocketSpec(all), 24)
+        assertEquals(33, maxed.nozzles[0].size)
+        assertEquals("three hinged solar wings", 3, maxed.parts.count { it.hinge && it.group == RocketModel.ARRAYS })
+        assertTrue("gold foil", maxed.parts.any { it.mat == com.brandonwallace.rocketlauncher.gl.MatType.FOIL })
+        assertTrue("glowing parts (AI dome, laser, ion, graphene)", maxed.parts.count { it.emissive != null } >= 4)
+        assertEquals(4, maxed.boosterOffsets.size)
+        assertEquals(6, maxed.stageBase.size)
+        val twenty = RocketModel(RocketSpec(all - "P_SUPER33"), 24)
+        assertEquals(20, twenty.nozzles[0].size)
+        val gg = RocketModel(RocketSpec(path[3]), 24)
+        assertTrue(gg.ggExhaust != null)
+        // more parts the further up the tree you go
+        val counts = listOf(emptySet(), TechTree.nodes.filter { it.tier <= 4 }.map { it.id }.toSet(), TechTree.nodes.filter { !it.jupiterProgram }.map { it.id }.toSet(), all)
+            .map { RocketModel(RocketSpec(it), 24).parts.size }
+        println("rocket part counts along the tree: $counts")
+        assertTrue(counts.zipWithNext().all { (x, y) -> y > x })
+    }
+
     @Test fun muteButtonTogglesAndPersists() {
         val h = Harness(SaveData(money = 10).serialize())
         val e = h.engine

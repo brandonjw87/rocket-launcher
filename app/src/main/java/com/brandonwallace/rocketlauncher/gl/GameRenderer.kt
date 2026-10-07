@@ -7,6 +7,7 @@ import com.brandonwallace.rocketlauncher.audio.SoundEngine
 import com.brandonwallace.rocketlauncher.game.EntityKind
 import com.brandonwallace.rocketlauncher.game.Fx
 import com.brandonwallace.rocketlauncher.game.GameEngine
+import com.brandonwallace.rocketlauncher.game.MissionTarget
 import com.brandonwallace.rocketlauncher.game.Phase
 import com.brandonwallace.rocketlauncher.game.Physics
 import com.brandonwallace.rocketlauncher.game.RocketSpec
@@ -83,7 +84,13 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
     private var sScroll = 0f; private var sHeat = 0f; private var sPaused = false
     private var sLiftedOff = false; private var sFlightTime = 0.0; private var sBoosterBurn = false
     private var sCountdown = 0f
+    private var sTarget = MissionTarget.MARS
     private var spec: RocketSpec = engine.spec
+    // exhaust looks for the current rocket (rebuilt with the model)
+    private var exFirst = Exhaust.firstStage(spec); private var exUpper = Exhaust.upperStage(spec); private var exBooster = Exhaust.booster(spec)
+    /** Solar wings: 0 folded (pad), 1 deployed (space). */
+    private var deploy = 0f
+    private val m4 = FloatArray(16)
     private var specVersion = -1
     private val MAXE = 256
     private val eKind = IntArray(MAXE); private val eX = FloatArray(MAXE); private val eY = FloatArray(MAXE); private val eZ = FloatArray(MAXE)
@@ -122,6 +129,8 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
         const val NEAR = 0.3f; const val NEAR_FAR = 1500f; const val FAR_NEAR = 1200f; const val FAR_FAR = 80000f
         const val R_KM = 6371.0
         const val EARTH_VIEW_MAX_KM = 1.5e6
+        /** How far to the side of the flight path Mars passes on Jupiter flights (~25 Mars radii). */
+        const val MARS_FLYBY_KM = 85_000.0
         fun smooth(e0: Float, e1: Float, x: Float): Float { val t = ((x - e0) / (e1 - e0)).coerceIn(0f, 1f); return t * t * (3 - 2 * t) }
     }
 
@@ -225,6 +234,10 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
         val pdt = if (sPaused) 0f else dt
         animTime += pdt
         handleFx(rk)
+        // solar wings unfold once the rocket is in space (and fold back for the hangar)
+        val wingsOut = (sPhase == Phase.FLIGHT || sPhase == Phase.RESULTS) && sAlt > 140_000.0 && !sExploded
+        deploy += ((if (wingsOut) 1f else 0f) - deploy) * (1f - exp(-pdt * 0.9f))
+        if (sPhase != Phase.FLIGHT && sPhase != Phase.RESULTS) deploy = 0f
         emitParticles(rk, pdt)
         particles.update(pdt, sScroll, 1.5f)
         if (sAlt > 4000) clearGroundParticles()
@@ -307,6 +320,7 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
         sScroll = engine.scroll; sHeat = (f?.heat ?: 0.0).toFloat(); sPaused = engine.paused
         sLiftedOff = f?.liftedOff ?: false; sFlightTime = f?.time ?: 0.0
         sCountdown = engine.countdown
+        sTarget = engine.target
         eN = 0
         for (e in engine.world.entities) {
             if (eN >= MAXE) break
@@ -336,6 +350,7 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
             rocket?.release()
             rocket = RocketModel(spec, quality.segs)
             rocketKey = key
+            exFirst = Exhaust.firstStage(spec); exUpper = Exhaust.upperStage(spec); exBooster = Exhaust.booster(spec)
         }
         val rk = rocket!!
         val ck = (rk.totalLength * 2).toInt()
@@ -437,10 +452,10 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
     private val camTOff = FloatArray(3); private val camTLook = FloatArray(3)
     private val camTDir = FloatArray(3)
 
-    /** Unit direction from the rocket toward the flight target (Moon or Mars), for the deep-space camera. */
+    /** Unit direction from the rocket toward the flight target (Mars, or Jupiter later), for the deep-space camera. */
     private fun targetDir(out: FloatArray): FloatArray {
-        // 1.1: every flight is the one Moon→Mars mission, so the camera always looks toward Mars
-        marsDirection(out); return out
+        if (sTarget == MissionTarget.JUPITER) jupiterDirection(out) else marsDirection(out)
+        return out
     }
 
     // ------------------------------------------------------------------ lighting
@@ -466,6 +481,7 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
 
     private fun updateSound() {
         val on = engine.save.value.soundOn
+        sound.enabled = on   // the mute button silences everything at once, including effects already playing
         sound.engineLevel = if (on && (sPhase == Phase.FLIGHT || sPhase == Phase.COUNTDOWN)) sGlow * (if (sPaused) 0f else 1f) else 0f
         sound.atmosphere = atm().coerceIn(0f, 1f).let { 0.15f + 0.85f * it }
     }
@@ -501,6 +517,7 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
         moonPos(tmp3)
         p.f3("uMoonPos", tmp3); p.f("uMoonR", moonR(tmp3))
         setMarsUniforms(p)
+        setJupiterUniforms(p)
         p.f("uTime", (animTime % 1000f)); p.f("uDeckKm", (World.DECK_ALT / 1000.0).toFloat()); p.f("uOutScale", pipe.outScale)
         p.f2("uPadKm", (-camX / 1000.0).toFloat(), (-camZ / 1000.0).toFloat())
         pipe.drawQuad()
@@ -514,16 +531,47 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
     }
 
     private val marsDir = FloatArray(3)
+    private val jupDir = FloatArray(3)
 
-    /** Mars direction + distance (in Mars radii) for Mars flights; it drifts to the zenith on approach, like the Moon. */
+    /**
+     * Mars direction + distance (in Mars radii). Mars flights: it drifts to the zenith on approach, like the Moon.
+     * Jupiter flights: Mars sits a little to the side of the path (toward Jupiter) and sweeps past during the flyby.
+     */
     private fun setMarsUniforms(p: ShaderProgram) {
         val show = sPhase == Phase.FLIGHT || sPhase == Phase.RESULTS
         if (!show) { p.f3("uMarsDir", 0f, 1f, 0f); p.f("uMarsD", 0f); return }
+        if (sTarget == MissionTarget.JUPITER) {
+            val rx = MARS_FLYBY_KM * 0.406 - camX / 1000.0
+            val ry = (Physics.MARS_ARRIVAL_ALT + Physics.MARS_RADIUS - camY) / 1000.0
+            val rz = -MARS_FLYBY_KM * 0.914 - camZ / 1000.0
+            val d = sqrt(rx * rx + ry * ry + rz * rz)
+            marsDir[0] = (rx / d).toFloat(); marsDir[1] = (ry / d).toFloat(); marsDir[2] = (rz / d).toFloat()
+            p.f3("uMarsDir", marsDir); p.f("uMarsD", (d / (Physics.MARS_RADIUS / 1000.0)).coerceAtLeast(1.015).toFloat())
+            return
+        }
         val camKm = camY / 1000.0
         val distKm = Physics.MARS_CENTER_DIST / 1000.0 - (R_KM + camKm)
         val d = (distKm / (Physics.MARS_RADIUS / 1000.0)).coerceAtLeast(1.015)
         marsDirection(marsDir)
         p.f3("uMarsDir", marsDir); p.f("uMarsD", d.toFloat())
+    }
+
+    /** Jupiter direction + distance (in Jupiter radii) on Jupiter flights; drifts to the zenith on approach like Mars. */
+    private fun setJupiterUniforms(p: ShaderProgram) {
+        val show = (sPhase == Phase.FLIGHT || sPhase == Phase.RESULTS) && sTarget == MissionTarget.JUPITER
+        if (!show) { p.f3("uJupDir", 0f, 1f, 0f); p.f("uJupD", 0f); return }
+        val distKm = Physics.JUPITER_CENTER_DIST / 1000.0 - (R_KM + camY / 1000.0)
+        val d = (distKm / (Physics.JUPITER_RADIUS / 1000.0)).coerceAtLeast(1.015)
+        jupiterDirection(jupDir)
+        p.f3("uJupDir", jupDir); p.f("uJupD", d.toFloat())
+    }
+
+    private fun jupiterDirection(out: FloatArray) {
+        val prog = ((sAlt - Physics.MARS_ARRIVAL_ALT) / (Physics.JUPITER_ARRIVAL_ALT - Physics.MARS_ARRIVAL_ALT)).coerceIn(0.0, 1.0)
+        val th = Math.toRadians(24.0 * sqrt(1.0 - prog))
+        val dx = 0.4 * sin(th); val dz = -0.9 * sin(th); val dy = cos(th)
+        val n = sqrt(dx * dx + dy * dy + dz * dz)
+        out[0] = (dx / n).toFloat(); out[1] = (dy / n).toFloat(); out[2] = (dz / n).toFloat()
     }
 
     private fun marsDirection(out: FloatArray) {
@@ -558,6 +606,7 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
         p.f("uPx", pipe.sceneH / 1100f * 1.4f)
         moonPos(tmp3); p.f3("uMoonPos", tmp3); p.f("uMoonR", moonR(tmp3))
         setMarsUniforms(p)
+        setJupiterUniforms(p)
         p.f("uVis", vis); p.f("uOutScale", pipe.outScale)
         GLES30.glBindVertexArray(starVao)
         GLES30.glDrawArrays(GLES30.GL_POINTS, 0, starCount)
@@ -578,11 +627,12 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
         l.f("uFogDensity", fogDensity); l.f("uOutScale", pipe.outScale)
         l.f("uTime", animTime % 1000f)
         l.f3("uPadRel", (-camX).toFloat(), (-camY).toFloat(), (-camZ).toFloat())
-        // engine flame light (from the current stage's nozzles)
+        // engine flame light (from the current stage's nozzles), coloured by the exhaust
         val glow = if (sExploded) 0f else sGlow
         l.f3("uFlamePos", flamePos[0], flamePos[1], flamePos[2])
         val fa = glow * 30f * (0.4f + 0.6f * atm())
-        l.f3("uFlameCol", fa, fa * 0.55f, fa * 0.22f)
+        val lc = (if (sStage > 0) exUpper else exFirst).light
+        l.f3("uFlameCol", fa * lc[0], fa * lc[1], fa * lc[2])
     }
     private val flamePos = FloatArray(3)
 
@@ -633,6 +683,20 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
         Mat.trs(rocketM, 0f, -c, 0f, pre = m3)
     }
 
+    /** Model matrix of one rocket part into [m] (stage offset, booster/wing local frame, wing hinge). */
+    private fun partMatrix(rk: RocketModel, p: Part, st: Int) {
+        val g = p.group
+        when {
+            g == RocketModel.PAYLOAD -> Mat.trs(m, 0f, -rk.stageBase[st], 0f, pre = rocketM)
+            g == RocketModel.ARRAYS -> {
+                Mat.trs(m2, 0f, -rk.stageBase[st], 0f, pre = rocketM); Mat.mul(m4, m2, p.local)
+                Mat.trs(m, 0f, 0f, 0f, rz = -90f * (1f - deploy), pre = m4)
+            }
+            g < 0 -> { Mat.trs(m2, 0f, -rk.stageBase[st], 0f, pre = rocketM); Mat.mul(m, m2, p.local) }
+            else -> Mat.trs(m, 0f, rk.stageBase[g] - rk.stageBase[st], 0f, pre = rocketM)
+        }
+    }
+
     private fun drawRocket(l: ShaderProgram, rk: RocketModel) {
         rocketBaseMatrix(rk)
         val st = sStage.coerceIn(0, rk.stageBase.size - 1)
@@ -641,14 +705,13 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
             val g = p.group
             if (g >= 0 && g < RocketModel.PAYLOAD && g < st) continue
             if (g < 0 && !sBoosters) continue
-            when {
-                g == RocketModel.PAYLOAD -> Mat.trs(m, 0f, -rk.stageBase[st], 0f, pre = rocketM)
-                g < 0 -> { Mat.trs(m2, 0f, -rk.stageBase[st], 0f, pre = rocketM); Mat.mul(m, m2, p.local) }
-                else -> Mat.trs(m, 0f, rk.stageBase[g] - rk.stageBase[st], 0f, pre = rocketM)
-            }
+            partMatrix(rk, p, st)
             drawPart(l, p, glowFor(g, st))
         }
     }
+
+    /** Hot-bell glow colour of a part's engine (by exhaust type). */
+    private fun bellGlow(g: Int): FloatArray = when { g < 0 -> exBooster.glow; g == 0 -> exFirst.glow; else -> exUpper.glow }
 
     private fun glowFor(g: Int, st: Int): Float = when {
         g == st -> sGlow * 2.2f
@@ -657,7 +720,7 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
     }
 
     private fun drawPart(l: ShaderProgram, p: Part, heat: Float) {
-        setDraw(l, m, p.mat, p.roughMul)
+        setDraw(l, m, p.mat, p.roughMul, emissive = if (p.engine) bellGlow(p.group) else p.emissive)
         l.f4("uPanel", p.panel[0], p.panel[1], p.panel[2], p.panel[3])
         val d = p.decal
         if (d != null) { l.f4("uDecalA", d[0], d[1], d[2], d[3]); l.f4("uDecalB", p.decalRow.toFloat(), 1f, 0f, 0f) }
@@ -776,11 +839,7 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
                 val g = p.group
                 if (g >= 0 && g < RocketModel.PAYLOAD && g < st) continue
                 if (g < 0 && !sBoosters) continue
-                when {
-                    g == RocketModel.PAYLOAD -> Mat.trs(m, 0f, -rk.stageBase[st], 0f, pre = rocketM)
-                    g < 0 -> { Mat.trs(m2, 0f, -rk.stageBase[st], 0f, pre = rocketM); Mat.mul(m, m2, p.local) }
-                    else -> Mat.trs(m, 0f, rk.stageBase[g] - rk.stageBase[st], 0f, pre = rocketM)
-                }
+                partMatrix(rk, p, st)
                 Mat.mul(lightMVP, shadowVPCam, m); sp.m4("uLightMVP", lightMVP); p.mesh.draw()
             }
         }
@@ -804,39 +863,34 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
         val glow = sGlow
         if (glow < 0.02f) { flamePos[0] = 0f; flamePos[1] = -1e4f; flamePos[2] = 0f; return }
         val a = atm()
-        val solid = !spec.has("P_LIQUID")
         GLES30.glEnable(GLES30.GL_BLEND); GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE)
         p.use()
         p.m4("uVP", vpN)
         p.f("uTime", animTime % 1000f); p.f("uOutScale", pipe.outScale)
         rocketBaseMatrix(rk)
         val st = sStage.coerceIn(0, rk.nozzles.size - 1)
-        val upper = st > 0
         val vac = 1f - a.coerceIn(0f, 1f)
-        fun draw(nx: Float, nz: Float, r: Float, booster: Boolean, local: FloatArray?) {
-            val len = r * ((if (booster || solid) 9f else 7f) + 6f * glow) * (1f + 1.8f * vac)
+        fun draw(nx: Float, nz: Float, r: Float, ex: ExhaustStyle, local: FloatArray?) {
+            val len = r * (7f + 6f * glow) * ex.length * (1f + 1.8f * vac)
             if (local != null) Mat.mul(m2, rocketM, local) else System.arraycopy(rocketM, 0, m2, 0, 16)
             Mat.trs(m, nx, 0f, nz, pre = m2)
             p.m4("uModel", m)
-            p.f("uLen", len); p.f("uRad", r * 0.95f); p.f("uExpand", 0.15f + 3.2f * vac)
-            p.f("uDiamonds", if (!solid && !booster && a > 0.25f) 1.2f else 0f)
+            p.f("uLen", len); p.f("uRad", r * 0.95f * ex.width); p.f("uExpand", (0.15f + 3.2f * vac) * ex.width)
+            // mach diamonds only in air; magnetically confined plasma shows its striations everywhere
+            p.f("uDiamonds", if (a > 0.25f || ex.striations) ex.diamonds else 0f)
+            p.f3("uDiaCol", ex.diamondCol)
             p.f("uSeed", nx * 13f + nz * 7f)
-            val inten = glow * (0.55f + 0.45f * a) * (if (vac > 0.9f) 0.6f else 1f)
-            if (booster || solid) {
-                p.f3("uCore", 7f, 6.2f, 4.6f); p.f3("uOuter", 3.2f, 1.7f, 0.6f)
-            } else if (upper) {
-                p.f3("uCore", 3.6f, 4.2f, 6.5f); p.f3("uOuter", 0.6f, 0.9f, 2.6f)
-            } else {
-                p.f3("uCore", 6.5f, 5.2f, 3.2f); p.f3("uOuter", 3.0f, 1.25f, 0.35f)
-            }
+            val inten = glow * (0.55f + 0.45f * a) * (if (vac > 0.9f && !ex.striations) 0.6f else 1f)
+            p.f3("uCore", ex.core); p.f3("uOuter", ex.outer)
             p.f("uIntensity", inten * 0.6f); outer.draw()
             Mat.trs(m3, 0f, 0f, 0f, 0.55f, 0.75f, 0.55f); Mat.mul(m2, m, m3)
             p.m4("uModel", m2)
             p.f("uIntensity", inten * 1.2f); core.draw()
         }
         val noz = rk.nozzles[st]
-        for (n in noz) draw(n.x, n.z, n.radius, false, null)
-        if (sBoosters && (sBoosterBurn || sPhase == Phase.COUNTDOWN)) for (o in rk.boosterOffsets) draw(0f, 0f, rk.boosterNozzleR, true, o)
+        val main = if (st > 0) exUpper else exFirst
+        for (n in noz) draw(n.x, n.z, n.radius, main, null)
+        if (sBoosters && (sBoosterBurn || sPhase == Phase.COUNTDOWN)) for (o in rk.boosterOffsets) draw(0f, 0f, rk.boosterNozzleR, exBooster, o)
         // flame light position: just below the nozzles (camera-relative)
         nozzleWorld(rk, 0f, -2.5f, 0f, tmp3)
         flamePos[0] = (tmp3[0] - camX).toFloat(); flamePos[1] = (tmp3[1] + sAlt - camY).toFloat(); flamePos[2] = (tmp3[2] - camZ).toFloat()
@@ -907,7 +961,6 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
         val glow = sGlow
         val a = atm()
         val st = sStage.coerceIn(0, rk.nozzles.size - 1)
-        val solid = !spec.has("P_LIQUID")
         val ct = cos(sTilt); val sn = sin(sTilt)
         val exX = -sn; val exY = -ct     // exhaust direction in the flight frame
         // ground steam during ignition and the first seconds of the climb
@@ -921,35 +974,48 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
             }
         }
         if (glow < 0.03f) return
-        fun nozzle(nx: Float, nz: Float, r: Float, booster: Boolean) {
+        fun nozzle(nx: Float, nz: Float, r: Float, ex: ExhaustStyle) {
             nozzleWorld(rk, nx, 0f, nz, tmp3b)
             val px = tmp3b[0]; val py = tmp3b[1]; val pz = tmp3b[2]
-            // flame licks (additive)
+            // flame licks (additive), coloured and stretched by the exhaust type
             val nFlame = (dt * 70f * glow).let { it + P.rnd() }.toInt()
             for (i in 0 until nFlame) {
-                val sp = P.rnd(35f, 70f)
+                val sp = P.rnd(35f, 70f) * (0.8f + 0.2f * ex.length)
                 P.emit(Particles.FLAME, Particles.FLIGHT, px + P.rnd(-0.3f, 0.3f) * r, py, pz + P.rnd(-0.3f, 0.3f) * r,
-                    exX * sp + P.rnd(-3f, 3f), exY * sp, P.rnd(-3f, 3f), P.rnd(0.12f, 0.3f), r * 1.3f, r * (0.6f + 2f * (1f - a)),
-                    if (booster || solid) 2.6f else 2.2f, if (booster || solid) 1.9f else 1.1f, if (booster || solid) 1.1f else 0.35f, 0.8f * glow, 0.3f)
+                    exX * sp + P.rnd(-3f, 3f), exY * sp, P.rnd(-3f, 3f), P.rnd(0.12f, 0.3f), r * 1.3f * ex.width, r * (0.6f + 2f * (1f - a)) * ex.width,
+                    ex.flame[0], ex.flame[1], ex.flame[2], 0.8f * glow, 0.3f)
             }
             // exhaust smoke trail (alpha) — only while there is air
-            if (a > 0.004f) {
-                val rate = (if (booster || solid) 40f else 22f) * glow * (0.3f + 0.7f * sqrt(a))
+            if (a > 0.004f && ex.smoke > 0f) {
+                val rate = ex.smoke * glow * (0.3f + 0.7f * sqrt(a))
                 val nSmoke = (dt * rate + P.rnd()).toInt()
-                val c = if (booster || solid) 0.92f else 0.86f
+                val sc = ex.smokeCol
+                val op = (0.4f + 0.3f * (ex.smoke / 40f).coerceAtMost(1f)) * (0.35f + 0.65f * a.pow(0.3f))
                 for (i in 0 until nSmoke) {
                     val sp = P.rnd(18f, 32f)
                     val grow = 1f + 2.5f * (1f - a)
                     P.emit(Particles.SMOKE, Particles.FLIGHT, px + P.rnd(-0.4f, 0.4f) * r, py - r * 2.5f, pz + P.rnd(-0.4f, 0.4f) * r,
                         exX * sp + P.rnd(-2f, 2f), exY * sp, P.rnd(-2f, 2f), P.rnd(2.5f, 5f), r * 1.6f, r * P.rnd(5f, 8f) * grow,
-                        c, c, c * 1.01f, (if (booster || solid) 0.7f else 0.5f) * (0.35f + 0.65f * a.pow(0.3f)), 1.4f, 0.3f)
+                        sc[0], sc[1], sc[2], op, 1.4f, 0.3f)
                 }
             }
         }
         val noz = rk.nozzles[st]
-        if (noz.size > 3) nozzle(0f, 0f, spec.stages[0].radius * 0.85f, false) else for (n in noz) nozzle(n.x, n.z, n.radius, false)
+        val main = if (st > 0) exUpper else exFirst
+        if (noz.size > 3) nozzle(0f, 0f, spec.stages[0].radius * 0.85f, main) else for (n in noz) nozzle(n.x, n.z, n.radius, main)
         if (sBoosters && (sBoosterBurn || sPhase == Phase.COUNTDOWN)) {
-            for (o in rk.boosterOffsets) nozzle(o[12], o[14], rk.boosterNozzleR, true)
+            for (o in rk.boosterOffsets) nozzle(o[12], o[14], rk.boosterNozzleR, exBooster)
+        }
+        // gas-generator cycle: a dark, fuel-rich turbine exhaust streams out beside the main plume
+        val gg = rk.ggExhaust
+        if (st == 0 && gg != null && main.soot > 0f && a > 0.004f) {
+            nozzleWorld(rk, gg[0], gg[1], gg[2], tmp3b)
+            val n = (dt * 26f * glow * main.soot + P.rnd()).toInt()
+            for (i in 0 until n) {
+                val sp = P.rnd(14f, 24f)
+                P.emit(Particles.SMOKE, Particles.FLIGHT, tmp3b[0], tmp3b[1], tmp3b[2], exX * sp + P.rnd(-1.5f, 1.5f), exY * sp, P.rnd(-1.5f, 1.5f),
+                    P.rnd(1.5f, 3f), 0.35f, P.rnd(1.6f, 3f) * (1f + 1.5f * (1f - a)), 0.1f, 0.09f, 0.085f, 0.7f * main.soot * (0.3f + 0.7f * a), 1.2f, 0.2f)
+            }
         }
         // re-entry style heating glow around the nose when the hull is hot
         if (sHeat > 0.35f) {

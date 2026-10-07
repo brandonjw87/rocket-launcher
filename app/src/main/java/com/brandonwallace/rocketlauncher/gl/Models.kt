@@ -12,7 +12,7 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-object MatType { const val PLAIN = 0; const val BODY = 1; const val CARBON = 2; const val FOAM = 3; const val STEEL = 4; const val TILES = 5; const val TERRAIN = 6; const val ENGINE = 7; const val METAL = 8; const val PAD = 9 }
+object MatType { const val PLAIN = 0; const val BODY = 1; const val CARBON = 2; const val FOAM = 3; const val STEEL = 4; const val TILES = 5; const val TERRAIN = 6; const val ENGINE = 7; const val METAL = 8; const val PAD = 9; const val FOIL = 10 }
 
 /** One drawable piece of the rocket. Mesh vertices are in metres in the part's local frame. */
 class Part(
@@ -22,17 +22,30 @@ class Part(
     val roughMul: Float = 1f,
     /** Engine bell: glows when that stage burns. */
     val engine: Boolean = false,
+    /** Self-lit parts (AI sensor dome, laser lens, ion thrusters, graphene bands). */
+    val emissive: FloatArray? = null,
+    /** Solar wing: folded against the body on the pad, swings out once in space. */
+    val hinge: Boolean = false,
 )
 
 class Nozzle(val x: Float, val z: Float, val radius: Float)
 
 /**
  * Procedural rocket. Everything visible comes from the researched tech: body material (paint → aluminium →
- * carbon → cryo foam → stainless), engine type and count, vacuum bells, nose profile, fins, grid fins,
- * avionics hardware, thermal protection, boosters and the number of stages.
+ * carbon → cryo foam → stainless → graphene), engine type and count (1 → 3 → 9 → 13 → 20 → 33), gimbal
+ * actuators, vacuum bells and plasma coils, nose profile and spike, fins, grid fins, RCS/ion thrusters,
+ * avionics hardware (antennas, dishes, AI dome, laser terminal, solar wings, RTGs), thermal and radiation
+ * protection (gold foil vault), Whipple shields, the Europa lander and sky-crane, boosters/side cores and the
+ * number of stages. (The exhaust itself changes too: see [Exhaust].)
  */
 class RocketModel(val spec: RocketSpec, private val segs: Int) {
-    companion object { const val PAYLOAD = 100 }
+    companion object {
+        const val PAYLOAD = 100
+        /** Hinged solar wings (attached to the payload, unfold in space). */
+        const val ARRAYS = 101
+        private val GLOW_BLUE = floatArrayOf(0.35f, 1.1f, 3.2f)
+        private val GLOW_GREEN = floatArrayOf(0.3f, 3.0f, 0.8f)
+    }
 
     val parts = ArrayList<Part>()
     val stageBase = FloatArray(spec.stages.size)
@@ -42,11 +55,14 @@ class RocketModel(val spec: RocketSpec, private val segs: Int) {
     var boosterNozzleR = 0.3f; private set
     var totalLength = 0f; private set
     var maxRadius = 0f; private set
+    /** Gas-generator turbine exhaust outlet on stage 1 (stage-local), or null. */
+    var ggExhaust: FloatArray? = null; private set
 
     private fun has(id: String) = spec.has(id)
 
     // ---- material choices from tech
-    private val bodyMat = when { has("S_BALLOON") -> MatType.STEEL; has("S_CRYO") -> MatType.FOAM; has("S_COMP") -> MatType.CARBON; else -> MatType.BODY }
+    private val graphene = has("S_GRAPHENE")
+    private val bodyMat = when { graphene -> MatType.CARBON; has("S_BALLOON") -> MatType.STEEL; has("S_CRYO") -> MatType.FOAM; has("S_COMP") -> MatType.CARBON; else -> MatType.BODY }
     private val alu = has("S_ALU")
     private val bodyCol = floatArrayOf(0.92f, 0.92f, 0.9f).let { if (alu && bodyMat == MatType.BODY) floatArrayOf(0.80f, 0.81f, 0.83f) else it }
     private val bodyRough = if (alu) 0.36f else 0.42f
@@ -63,10 +79,13 @@ class RocketModel(val spec: RocketSpec, private val segs: Int) {
     init { build() }
 
     private fun mb() = MeshBuilder()
-    private fun add(group: Int, b: MeshBuilder, mat: Int, panel: FloatArray = floatArrayOf(1.2f, 0f, 0f, 0f), decal: FloatArray? = null, decalRow: Int = 0, engine: Boolean = false, local: FloatArray = Mat.new(), rm: Float = roughMul) {
+    private fun add(group: Int, b: MeshBuilder, mat: Int, panel: FloatArray = floatArrayOf(1.2f, 0f, 0f, 0f), decal: FloatArray? = null, decalRow: Int = 0, engine: Boolean = false, local: FloatArray = Mat.new(), rm: Float = roughMul,
+                    emissive: FloatArray? = null, hinge: Boolean = false) {
         if (b.isEmpty) return
-        parts += Part(group, b.build(), local, mat, panel, decal, decalRow, rm, engine)
+        parts += Part(group, b.build(), local, mat, panel, decal, decalRow, rm, engine, emissive, hinge)
     }
+
+    private fun ring(n: Int, rad: Float, phase: Float) = (0 until n).map { k -> val a = k * 2f * PI.toFloat() / n + phase; rad * cos(a) to rad * sin(a) }
 
     /** Bell nozzle (outer + glowing inner surface) with exit at y0. Returns its height. */
     private fun bell(b: MeshBuilder, x: Float, z: Float, y0: Float, re: Float, len: Float, solid: Boolean) {
@@ -118,15 +137,29 @@ class RocketModel(val spec: RocketSpec, private val segs: Int) {
                 val count = spec.engineCount
                 val bl = r * (if (solid) 0.5f else 0.8f + 0.05f * engineLv)
                 val positions = when (count) {
+                    33 -> ring(3, r * 0.18f, 0f) + ring(10, r * 0.48f, 0.3f) + ring(20, r * 0.82f, 0.1f)
+                    20 -> ring(6, r * 0.33f, 0f) + ring(14, r * 0.76f, 0.2f)
                     13 -> (0 until 3).map { k -> val a = k * 2f * PI.toFloat() / 3f; r * 0.2f * cos(a) to r * 0.2f * sin(a) } +
                         (0 until 10).map { k -> val a = k * PI.toFloat() / 5f + 0.3f; r * 0.7f * cos(a) to r * 0.7f * sin(a) }
                     9 -> listOf(0f to 0f) + (0 until 8).map { k -> val a = k * PI.toFloat() / 4f; r * 0.62f * cos(a) to r * 0.62f * sin(a) }
                     3 -> (0 until 3).map { k -> val a = k * 2f * PI.toFloat() / 3f + PI.toFloat() / 2f; r * 0.45f * cos(a) to r * 0.45f * sin(a) }
                     else -> listOf(0f to 0f)
                 }
-                val re = when (count) { 13 -> r * 0.165f; 9 -> r * 0.21f; 3 -> r * 0.36f; else -> r * (if (solid) 0.5f else 0.64f) }
+                val re = when (count) { 33 -> r * 0.115f; 20 -> r * 0.15f; 13 -> r * 0.165f; 9 -> r * 0.21f; 3 -> r * 0.36f; else -> r * (if (solid) 0.5f else 0.64f) }
                 if (solid) engines.color(0.16f, 0.16f, 0.17f).material(0.7f, 0.1f)
+                else if (has("P_METHALOX")) engines.color(0.34f, 0.33f, 0.35f).material(0.24f, 1f)   // polished methalox bells
                 for ((x, z) in positions) { bell(engines, x, z, 0f, re, bl, solid); noz += Nozzle(x, z, re) }
+                // gimbal actuators (thrust-vector control: red electric struts)
+                if (spec.level(Stat.GIMBAL) >= 1) {
+                    val tvc = spec.level(Stat.GIMBAL) >= 2
+                    val gb = mb().color(if (tvc) 0.78f else 0.32f, if (tvc) 0.12f else 0.32f, if (tvc) 0.08f else 0.34f).material(0.45f, 0.6f)
+                    for ((x, z) in positions.take(13)) for (k in 0 until 2) {
+                        val a = k * PI.toFloat() / 2f + 0.4f
+                        gb.beam(x + cos(a) * re * 0.55f, bl * 0.95f, z + sin(a) * re * 0.55f, x + cos(a) * re * 0.62f, bl * 0.45f, z + sin(a) * re * 0.62f, re * 0.06f + 0.015f)
+                    }
+                    add(0, gb, MatType.METAL)
+                }
+                if (!solid && count == 1 && has("P_GG")) ggExhaust = floatArrayOf(r * 0.55f, bl * 0.05f, r * 0.1f)
                 // turbopump / gas-generator plumbing on single-engine liquid stages
                 if (!solid && count == 1) {
                     val pb = mb().color(0.45f, 0.43f, 0.4f).material(0.4f, 0.85f)
@@ -144,17 +177,32 @@ class RocketModel(val spec: RocketSpec, private val segs: Int) {
             } else {
                 val re = ure[i]; val bl = ubl[i]
                 val ext = vac >= 2
-                if (has("P_NTR")) engines.color(0.62f, 0.48f, 0.18f).material(0.28f, 1f)   // gold reactor shielding
+                val plasma = spec.level(Stat.NUCLEAR) >= 3
+                if (plasma) engines.color(0.55f, 0.56f, 0.6f).material(0.22f, 1f)               // polished plasma chamber
+                else if (has("P_NTR")) engines.color(0.62f, 0.48f, 0.18f).material(0.28f, 1f)   // gold reactor shielding
                 else engines.color(0.25f, 0.24f, 0.23f).material(0.32f, 0.9f)
                 bell(engines, 0f, 0f, 0f, re, bl, false)
-                if (ext) { // dark niobium extension ring
-                    val ex = mb().color(0.16f, 0.13f, 0.17f).material(0.4f, 0.8f)
-                    ex.lathe(floatArrayOf(re * 1.12f, -bl * 0.25f, re, 0f), segs)
-                    ex.lathe(floatArrayOf(re * 1.07f, -bl * 0.25f, re * 0.95f, 0f), segs, inside = true)
+                var exitR = re
+                if (ext) { // dark niobium extension ring (carbon-carbon skirts make it much longer)
+                    val skirt = if (vac >= 4) 0.55f else 0.25f
+                    exitR = re * (if (vac >= 4) 1.22f else 1.12f)
+                    val ex = mb().color(if (vac >= 4) 0.07f else 0.16f, if (vac >= 4) 0.07f else 0.13f, if (vac >= 4) 0.08f else 0.17f).material(0.4f, 0.8f)
+                    ex.lathe(floatArrayOf(exitR, -bl * skirt, re, 0f), segs)
+                    ex.lathe(floatArrayOf(exitR * 0.95f, -bl * skirt, re * 0.95f, 0f), segs, inside = true)
                     add(i, ex, MatType.ENGINE, floatArrayOf(0f, 0f, 0f, 0f), engine = true)
                 }
                 add(i, engines, MatType.ENGINE, floatArrayOf(bl * 0.85f, 0f, if (has("TH_REGEN")) 1f else 0f, 0f), engine = true)
-                noz += Nozzle(0f, 0f, if (ext) re * 1.12f else re)
+                if (plasma) {   // copper superconducting magnet coils around the magnetic nozzle
+                    val coils = mb().color(0.78f, 0.42f, 0.2f).material(0.3f, 1f)
+                    val n = if (spec.level(Stat.NUCLEAR) >= 4) 5 else 3
+                    for (k in 0 until n) {
+                        val yy = bl * (0.12f + 0.62f * k / (n - 1).coerceAtLeast(1))
+                        val rr = re * (1.02f - 0.45f * k / n) + 0.04f
+                        coils.lathe(floatArrayOf(rr, yy - 0.05f, rr + 0.07f, yy, rr, yy + 0.05f), segs)
+                    }
+                    add(i, coils, MatType.METAL)
+                }
+                noz += Nozzle(0f, 0f, exitR)
                 tankStart = bl + 0.1f
             }
             nozzles += noz
@@ -170,7 +218,46 @@ class RocketModel(val spec: RocketSpec, private val segs: Int) {
                 1 -> { val ly = min(3.2f, (top - tankStart) * 0.7f); floatArrayOf(tankStart + 0.3f, tankStart + 0.3f + ly, (PI / 2).toFloat(), ly / (16f * r)) }
                 else -> null
             }
-            add(i, tank, bodyMat, floatArrayOf(ringSp, seams, 0f, paintPattern), decal, if (i == 0) 0 else 1)
+            val foilTop = i == nSt - 1 && i > 0 && spec.level(Stat.RADIATION) >= 1
+            if (foilTop) {   // radiation vault program: the top stage wears crinkled gold multi-layer insulation
+                val gold = mb().color(0.86f, 0.63f, 0.2f).material(0.32f, 1f)
+                gold.lathe(floatArrayOf(r * 0.97f, tankStart, r, tankStart + 0.06f, r, top - 0.06f, r * 0.985f, top), segs)
+                add(i, gold, MatType.FOIL)
+            } else add(i, tank, bodyMat, floatArrayOf(ringSp, seams, 0f, paintPattern), decal, if (i == 0) 0 else 1)
+            // Whipple shield: quilted stand-off bumper panels around the upper stages
+            if (i > 0 && !foilTop && has("S_WHIPPLE")) {
+                val wb = mb().color(0.93f, 0.93f, 0.9f).material(0.75f, 0f)
+                val y0w = tankStart + 0.25f; val y1w = top - 0.3f
+                if (y1w > y0w + 0.3f) {
+                    wb.lathe(floatArrayOf(r * 1.012f, y0w, r * 1.035f, y0w + 0.05f, r * 1.035f, y1w - 0.05f, r * 1.012f, y1w), segs)
+                    add(i, wb, MatType.BODY, floatArrayOf(0.45f, 12f, 0f, 0f))
+                }
+            }
+            // graphene frame: glowing blue bands
+            if (graphene) {
+                val gl = mb().color(0.2f, 0.5f, 1f).material(0.3f, 0f)
+                for (yy in listOf(tankStart + 0.35f, top - 0.35f)) gl.lathe(floatArrayOf(r * 1.004f, yy - 0.05f, r * 1.008f, yy, r * 1.004f, yy + 0.05f), segs)
+                add(i, gl, MatType.PLAIN, emissive = GLOW_BLUE)
+            }
+            // zero-boil-off cryocooler radiators near the top of the first stage
+            if (i == 0 && has("S_ZBO")) {
+                val zr = mb().color(0.92f, 0.93f, 0.95f).material(0.35f, 0.2f)
+                for (k in 0 until 4) {
+                    zr.transform(Mat.trs(FloatArray(16), 0f, 0f, 0f, ry = 22.5f + k * 90f))
+                    zr.box(r * 1.07f, top - 1.3f, 0f, 0.04f, 1.5f, r * 0.7f)
+                    zr.beam(r * 0.99f, top - 1.3f, 0f, r * 1.07f, top - 1.3f, 0f, 0.05f)
+                    zr.transform(null)
+                }
+                add(0, zr, MatType.METAL)
+            }
+            // slush-densified propellant: frost bands on the cold lower tanks
+            if (i <= 1 && has("S_SLUSH")) {
+                val fr = mb().color(0.9f, 0.93f, 0.97f).material(0.95f, 0f)
+                fr.lathe(floatArrayOf(r * 1.002f, tankStart + 0.1f, r * 1.006f, tankStart + 0.2f, r * 1.006f, tankStart + (top - tankStart) * 0.35f, r * 1.002f, tankStart + (top - tankStart) * 0.38f), segs)
+                add(i, fr, MatType.PLAIN)
+            }
+            // RCS thruster quads near the top of the first stage
+            if (i == 0 && has("A_RCS")) buildRcs(0, r, top - 0.45f)
             // reinforcement bands (monocoque) / weld rings
             if (has("S_MONO") || has("S_TITAN") || bodyMat == MatType.STEEL) {
                 val bands = mb().color(accent[0], accent[1], accent[2]).material(0.4f, 0.5f)
@@ -206,6 +293,16 @@ class RocketModel(val spec: RocketSpec, private val segs: Int) {
                     val sep = mb().color(0.85f, 0.65f, 0.1f).material(0.5f, 0.6f)
                     sep.lathe(floatArrayOf(max(rn, r * 0.93f) * 1.006f, top + isLen - 0.12f, max(rn, r * 0.93f) * 1.012f, top + isLen - 0.06f, max(rn, r * 0.93f) * 1.006f, top + isLen), segs)
                     add(i, sep, MatType.METAL)
+                }
+                if (has("ST_HOT")) {   // hot staging: vented ring so the next engine can light before separation
+                    val vent = mb().color(0.04f, 0.04f, 0.045f).material(0.7f, 0.3f)
+                    val vr = (r + max(rn, r * 0.93f)) * 0.5f
+                    for (k in 0 until 12) {
+                        vent.transform(Mat.trs(FloatArray(16), 0f, 0f, 0f, ry = k * 30f))
+                        vent.box(vr * 1.01f, top + isLen * 0.55f, 0f, 0.05f, isLen * 0.32f, vr * 0.22f)
+                        vent.transform(null)
+                    }
+                    add(i, vent, MatType.METAL)
                 }
                 stageEnd = top + isLen
                 base = stageBase[i] + top + 0.15f
@@ -283,10 +380,114 @@ class RocketModel(val spec: RocketSpec, private val segs: Int) {
         return p
     }
 
+    /** RCS thruster quads: four little blocks with nozzles pointing four ways. */
+    private fun buildRcs(group: Int, r: Float, y: Float) {
+        val q = mb().color(0.78f, 0.78f, 0.8f).material(0.4f, 0.7f)
+        for (k in 0 until 4) {
+            q.transform(Mat.trs(FloatArray(16), 0f, 0f, 0f, ry = 45f + k * 90f))
+            q.box(r * 1.04f, y, 0f, 0.12f, 0.2f, 0.2f)
+            q.beam(r * 1.08f, y, 0f, r * 1.08f, y + 0.16f, 0f, 0.05f); q.beam(r * 1.08f, y, 0f, r * 1.08f, y - 0.16f, 0f, 0.05f)
+            q.beam(r * 1.08f, y, 0f, r * 1.08f, y, 0.16f, 0.05f); q.beam(r * 1.08f, y, 0f, r * 1.08f, y, -0.16f, 0.05f)
+            q.transform(null)
+        }
+        add(group, q, MatType.METAL)
+    }
+
+    /** Payload bay (radiation vault, Europa lander + sky-crane), solar wings and RTGs. Returns the new top. */
+    private fun buildPayloadBay(y0: Float, r: Float): Float {
+        var y = y0
+        val rad = spec.level(Stat.RADIATION)
+        if (rad >= 1) {   // gold-foil radiation vault section with the titanium vault box
+            val hb = 0.9f
+            val foil = mb().color(0.86f, 0.63f, 0.2f).material(0.32f, 1f)
+            foil.lathe(floatArrayOf(r * 0.985f, y, r, y + 0.04f, r, y + hb - 0.04f, r * 0.985f, y + hb), segs)
+            add(PAYLOAD, foil, MatType.FOIL)
+            val vault = mb().color(0.56f, 0.57f, 0.6f).material(0.35f, 0.9f)
+            vault.box(0f, y + hb / 2, r * 0.97f, r * 0.8f, hb * 0.8f, r * 0.3f)
+            if (rad >= 2) {   // radiation-hardened electronics: dark tungsten shielding plates
+                vault.color(0.1f, 0.1f, 0.11f).material(0.55f, 0.7f)
+                for (k in 0 until 4) {
+                    vault.transform(Mat.trs(FloatArray(16), 0f, 0f, 0f, ry = 45f + k * 90f))
+                    vault.box(r * 1.012f, y + hb / 2, 0f, 0.04f, hb * 0.7f, r * 0.55f)
+                    vault.transform(null)
+                }
+            }
+            add(PAYLOAD, vault, MatType.METAL)
+            y += hb
+        }
+        val lander = spec.level(Stat.LANDER)
+        if (lander >= 1) {   // octagonal gold Europa lander with folded legs
+            val h = 1.3f
+            val body = mb().color(0.86f, 0.63f, 0.2f).material(0.32f, 1f)
+            body.lathe(floatArrayOf(r * 0.94f, y, r * 0.96f, y + 0.05f, r * 0.96f, y + h - 0.05f, r * 0.94f, y + h), 8)
+            add(PAYLOAD, body, MatType.FOIL)
+            val legs = mb().color(0.72f, 0.72f, 0.74f).material(0.4f, 0.9f)
+            for (k in 0 until 4) {
+                val a = (PI / 4 + k * PI / 2).toFloat()
+                legs.beam(cos(a) * r * 0.96f, y + h * 0.85f, sin(a) * r * 0.96f, cos(a) * r * 1.1f, y + 0.08f, sin(a) * r * 1.1f, 0.06f)
+                legs.transform(Mat.trs(FloatArray(16), cos(a) * r * 1.1f, y + 0.04f, sin(a) * r * 1.1f)); legs.cylinder(0.14f, -0.03f, 0.03f, 10); legs.transform(null)
+            }
+            add(PAYLOAD, legs, MatType.METAL)
+            y += h
+            if (lander >= 2) {   // sky-crane: red frame with four down-firing thruster pods
+                val hc = 0.7f
+                val crane = mb().color(0.8f, 0.12f, 0.08f).material(0.45f, 0.5f)
+                for (k in 0 until 4) {
+                    val a = (k * PI / 2).toFloat()
+                    val cx = cos(a) * r * 0.85f; val cz = sin(a) * r * 0.85f
+                    crane.beam(cx, y, cz, cx * 0.6f, y + hc, cz * 0.6f, 0.06f)
+                    crane.box(cx * 1.12f, y + hc * 0.35f, cz * 1.12f, 0.22f, 0.22f, 0.22f)
+                }
+                crane.lathe(floatArrayOf(r * 0.55f, y + hc - 0.06f, r * 0.62f, y + hc, r * 0.55f, y + hc + 0.06f), segs)
+                add(PAYLOAD, crane, MatType.METAL)
+                val pods = mb().color(0.22f, 0.21f, 0.2f).material(0.35f, 0.9f)
+                for (k in 0 until 4) { val a = (k * PI / 2).toFloat(); bell(pods, cos(a) * r * 0.95f, sin(a) * r * 0.95f, y + hc * 0.35f - 0.32f, 0.07f, 0.2f, false) }
+                add(PAYLOAD, pods, MatType.METAL)
+                y += hc
+            }
+        }
+        // Juno-class solar wings: three long panels, hinged just above the top stage (they hang folded on the pad)
+        if (spec.level(Stat.POWER) >= 1) {
+            val w = 2.6f * r + 0.6f; val d = 0.8f * r + 0.15f
+            for (k in 0 until 3) {
+                val a = (k * 2.0 * PI / 3.0).toFloat()
+                val hingeR = r * 1.06f
+                val local = Mat.trs(FloatArray(16), cos(a) * hingeR, y0 + 0.25f, -sin(a) * hingeR, ry = Math.toDegrees(a.toDouble()).toFloat())
+                val wing = mb().color(0.7f, 0.7f, 0.72f).material(0.4f, 0.9f)
+                wing.box(0.08f, 0f, 0f, 0.16f, 0.06f, 0.1f)                 // hinge yoke
+                wing.color(0.05f, 0.09f, 0.28f).material(0.22f, 0.6f)
+                wing.box(0.16f + w / 2, 0f, 0f, w, 0.035f, d)              // cells
+                wing.color(0.7f, 0.7f, 0.72f).material(0.4f, 0.9f)
+                for (j in 0..4) { val x = 0.16f + w * j / 4f; wing.beam(x, 0.02f, -d / 2, x, 0.02f, d / 2, 0.02f) }   // panel frames
+                wing.beam(0.16f, 0.02f, d / 2, 0.16f + w, 0.02f, d / 2, 0.02f); wing.beam(0.16f, 0.02f, -d / 2, 0.16f + w, 0.02f, -d / 2, 0.02f)
+                add(ARRAYS, wing, MatType.METAL, local = local, hinge = true)
+            }
+        }
+        // radioisotope generators: two finned cylinders on booms
+        if (spec.level(Stat.POWER) >= 2) {
+            val rtg = mb().color(0.2f, 0.2f, 0.21f).material(0.5f, 0.8f)
+            for (deg in listOf(60f, 180f)) {
+                rtg.transform(Mat.trs(FloatArray(16), 0f, 0f, 0f, ry = deg))
+                val ry0 = y0 + 0.5f
+                rtg.beam(r * 0.98f, ry0, 0f, r + 0.9f, ry0 - 0.35f, 0f, 0.05f)
+                rtg.transform(Mat.mul(FloatArray(16), Mat.trs(FloatArray(16), 0f, 0f, 0f, ry = deg), Mat.trs(FloatArray(16), r + 0.95f, ry0 - 0.35f, 0f)))
+                rtg.cylinder(0.15f, -0.45f, 0.45f, 12); rtg.transform(null)
+                for (f in 0 until 6) {
+                    rtg.transform(Mat.trs(FloatArray(16), 0f, 0f, 0f, ry = deg))
+                    val fa = f * PI.toFloat() / 3f
+                    rtg.beam(r + 0.95f + cos(fa) * 0.15f, ry0 - 0.78f, sin(fa) * 0.15f, r + 0.95f + cos(fa) * 0.27f, ry0 - 0.78f + 0.85f, sin(fa) * 0.27f, 0.02f)
+                    rtg.transform(null)
+                }
+            }
+            add(PAYLOAD, rtg, MatType.METAL)
+        }
+        return y
+    }
+
     /** Payload adaptor, avionics, nose/fairing, thermal protection, antennas. Returns the overall top. */
     private fun buildNose(y0: Float, r: Float): Float {
         val aero = spec.level(Stat.AERO)
-        var y = y0
+        var y = buildPayloadBay(y0, r)
         // avionics ring
         if (spec.level(Stat.AVIONICS) >= 2) {
             val ring = mb().color(0.12f, 0.12f, 0.13f).material(0.5f, 0.5f)
@@ -296,8 +497,23 @@ class RocketModel(val spec: RocketSpec, private val segs: Int) {
                 ring.box(cos(a) * r * 1.03f, y + 0.22f, sin(a) * r * 1.03f, 0.18f, 0.2f, 0.18f)
             }
             add(PAYLOAD, ring, MatType.METAL)
+            if (spec.level(Stat.AVIONICS) >= 5) {   // autonomous AI navigator: glowing blue sensor dome
+                val dome = mb().color(0.2f, 0.45f, 0.9f).material(0.15f, 0f)
+                val a = 4.2f
+                dome.transform(Mat.trs(FloatArray(16), cos(a) * r * 1.0f, y + 0.22f, sin(a) * r * 1.0f)); dome.sphere(0.16f, 14, 8); dome.transform(null)
+                add(PAYLOAD, dome, MatType.PLAIN, emissive = GLOW_BLUE)
+            }
+            if (has("A_ION")) {   // ion attitude thrusters: blue glowing discs around the avionics ring
+                val ion = mb().color(0.3f, 0.55f, 1f).material(0.2f, 0f)
+                for (k in 0 until 4) {
+                    val a = (PI / 4 + k * PI / 2).toFloat()
+                    ion.transform(Mat.trs(FloatArray(16), cos(a) * r * 1.03f, y + 0.22f, sin(a) * r * 1.03f, sx = 0.5f)); ion.sphere(0.11f, 10, 6); ion.transform(null)
+                }
+                add(PAYLOAD, ion, MatType.PLAIN, emissive = GLOW_BLUE)
+            }
             y += 0.45f
         }
+        if (has("A_RCS")) buildRcs(PAYLOAD, r, y + 0.15f)
         val fairing = aero >= 3
         val R = if (fairing) r * 1.16f else r
         val noseCol = if (bodyMat == MatType.CARBON) floatArrayOf(0.05f, 0.05f, 0.055f) else floatArrayOf(0.93f, 0.93f, 0.92f)
@@ -306,7 +522,7 @@ class RocketModel(val spec: RocketSpec, private val segs: Int) {
             body.lathe(floatArrayOf(r, y, R, y + 0.55f, R, y + 0.6f + 1.7f * r), segs)
             y += 0.6f + 1.7f * r
         }
-        val L = R * when (aero) { 0 -> 1.6f; 1 -> 2.3f; 2 -> 2.7f; 5 -> 3.4f; else -> 2.5f }
+        val L = R * when (aero) { 0 -> 1.6f; 1 -> 2.3f; 2 -> 2.7f; 3, 4 -> 2.5f; else -> 3.4f }
         val kind = when (aero) { 0 -> 0; 1 -> 1; else -> 2 }
         val prof = noseProfile(R, L, kind)
         // split the nose: lower part body colour, upper part thermal protection (if researched)
@@ -339,7 +555,24 @@ class RocketModel(val spec: RocketSpec, private val segs: Int) {
             ch.lathe(floatArrayOf(R * 1.005f, y + 0.15f, R * 1.03f, y + 0.2f, R * 1.03f, y + 0.55f, R * 1.005f, y + 0.6f), segs)
             add(PAYLOAD, ch, MatType.PLAIN)
         }
-        val top = y + L
+        var top = y + L
+        // aerodisk spike: a needle with a small disc pushes the shock wave off the nose
+        if (has("A_SPIKE")) {
+            val sp = mb().color(0.75f, 0.76f, 0.78f).material(0.25f, 1f)
+            sp.cylinder(0.035f, top - 0.2f, top + R * 1.1f, 10)
+            sp.lathe(floatArrayOf(0.02f, top + R * 1.1f - 0.05f, R * 0.16f, top + R * 1.1f, 0.0f, top + R * 1.1f + 0.06f), 16)
+            add(PAYLOAD, sp, MatType.METAL)
+            top += R * 1.1f + 0.06f
+        }
+        // laser deep-space comms: a terminal with a green lens on the nose
+        if (spec.level(Stat.AVIONICS) >= 6) {
+            val lt = mb().color(0.75f, 0.76f, 0.78f).material(0.3f, 0.9f)
+            lt.transform(Mat.trs(FloatArray(16), -R * 0.7f, y + L * 0.5f, 0f)); lt.cylinder(0.12f, -0.1f, 0.32f, 12); lt.transform(null)
+            add(PAYLOAD, lt, MatType.METAL)
+            val lens = mb().color(0.2f, 1f, 0.4f).material(0.1f, 0f)
+            lens.transform(Mat.trs(FloatArray(16), -R * 0.7f, y + L * 0.5f, 0f)); lens.disc(0.09f, 0.33f, 12, true); lens.transform(null)
+            add(PAYLOAD, lens, MatType.PLAIN, emissive = GLOW_GREEN)
+        }
         // avionics: antennas / dish
         val av = spec.level(Stat.AVIONICS)
         if (av >= 1) {
@@ -372,21 +605,23 @@ class RocketModel(val spec: RocketSpec, private val segs: Int) {
         val lb = bs.length
         val d = core + rb + 0.06f
         val angles = if (n == 4) listOf(45f, 135f, 225f, 315f) else listOf(0f, 180f)
+        val heavy = spec.heavySideCores
         boosterNozzleR = rb * 0.62f
         for ((k, ang) in angles.withIndex()) {
             val a = Math.toRadians(ang.toDouble())
             val off = Mat.trs(FloatArray(16), (cos(a) * d).toFloat(), 0f, (sin(a) * d).toFloat())
             boosterOffsets += off
             val g = -(k + 1)
-            val noz = mb().color(0.16f, 0.16f, 0.17f).material(0.7f, 0.2f)
-            bell(noz, 0f, 0f, 0f, rb * 0.62f, rb * 0.7f, true)
+            val noz = if (heavy) mb().color(0.3f, 0.29f, 0.3f).material(0.28f, 1f) else mb().color(0.16f, 0.16f, 0.17f).material(0.7f, 0.2f)
+            bell(noz, 0f, 0f, 0f, rb * 0.62f, rb * (if (heavy) 0.95f else 0.7f), !heavy)
             add(g, noz, MatType.ENGINE, floatArrayOf(rb * 0.5f, 0f, 0f, 0f), engine = true, local = off)
-            val body = mb().color(0.93f, 0.93f, 0.92f).material(0.45f, 0f)
+            // liquid side cores wear the core stage's skin; solid boosters stay white
+            val body = if (heavy) mb().color(bodyCol[0], bodyCol[1], bodyCol[2]).material(bodyRough, bodyMetal) else mb().color(0.93f, 0.93f, 0.92f).material(0.45f, 0f)
             body.lathe(floatArrayOf(rb * 0.85f, rb * 0.5f, rb, rb * 0.75f, rb, lb), segs)
             val tip = noseProfile(rb, rb * 2.2f, 1)
             for (j in 0 until tip.size / 2) tip[2 * j + 1] += lb
             body.lathe(tip, segs)
-            add(g, body, MatType.BODY, floatArrayOf(lb / 4f, 0f, 0f, 0f), local = off)
+            add(g, body, if (heavy) bodyMat else MatType.BODY, floatArrayOf(lb / 4f, if (heavy && bodyMat != MatType.STEEL) 4f else 0f, 0f, 0f), local = off)
             val st = mb().color(0.3f, 0.3f, 0.32f).material(0.5f, 0.7f)
             val inward = -(d - rb) // towards the core in the booster's local frame
             val dx = (cos(a) * inward).toFloat(); val dz = (sin(a) * inward).toFloat()

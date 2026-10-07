@@ -41,7 +41,7 @@ object Physics {
     const val MARS_WARP_CAP = 3_000_000.0
     const val JUPITER_WARP_CAP = 6_000_000.0
     /** Jupiter flights slow the time warp down around Mars so the flyby is actually visible (a couple of seconds). */
-    const val MARS_FLYBY_WARP = 2_500.0
+    const val MARS_FLYBY_WARP = 800.0
     /**
      * Time-warp limit while the engines are actually burning. Without it a deep-space burn ran at x70,000 and an
      * upper stage emptied in a fraction of a real second, making the capture/landing fuel window ~1 s wide.
@@ -80,7 +80,7 @@ object Physics {
     /** Warp cap for this point of a flight toward [target] (Mars flights keep the 1.1 cap exactly). */
     fun warpCap(target: MissionTarget, alt: Double): Double = when (target) {
         MissionTarget.MARS -> MARS_WARP_CAP
-        MissionTarget.JUPITER -> min(JUPITER_WARP_CAP, MARS_FLYBY_WARP + abs(alt - MARS_ARRIVAL_ALT) * 4e-4)
+        MissionTarget.JUPITER -> min(JUPITER_WARP_CAP, MARS_FLYBY_WARP + abs(alt - MARS_ARRIVAL_ALT) * 1.5e-4)
     }
 }
 
