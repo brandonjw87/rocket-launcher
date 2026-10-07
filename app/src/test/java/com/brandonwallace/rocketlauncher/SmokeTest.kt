@@ -568,4 +568,20 @@ class SmokeTest {
         assertTrue(e.save.value.soundOn && e.hud.value.soundOn)
         assertTrue(GameEngine(h.store).save.value.soundOn)
     }
+
+    @Test fun screenshotSavesStillFlyToTheirTargets() {
+        // store-listing/screenshot-saves are loaded on the emulator for Play Store screenshots (SCREENSHOTS.md)
+        fun load(name: String): SaveData {
+            val xml = java.io.File("../store-listing/screenshot-saves/$name.xml").readText()
+            return SaveData.parse(xml.substringAfter("<string name=\"save\">").substringBefore("</string>"))
+        }
+        fun fly(s: SaveData) = com.brandonwallace.rocketlauncher.game.simulateAutopilot(RocketSpec(s.tech), MissionTarget.of(s))
+        assertTrue(load("early").tech.isNotEmpty())
+        val mars = fly(load("mars")); assertTrue("mars.xml lands on Mars", mars.marsLanded)
+        val jup = fly(load("jupiter")); assertTrue("jupiter.xml lands on Europa", jup.europaLanded)
+        val sat = load("saturn")
+        assertEquals(TechTree.nodes.size, sat.tech.size)
+        val r = fly(sat); assertTrue("saturn.xml flies on Titan", r.titanFlight)
+        assertEquals(8, RocketSpec(sat.tech).stages.size)
+    }
 }

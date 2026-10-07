@@ -1,6 +1,6 @@
-# Screenshots for the Play Store (version 1.2)
+# Screenshots for the Play Store (version 1.3)
 
-Your 1.1 screenshots show the old 6-step mission and no mute button, so replace them. This page lists **what to
+Your 1.2 screenshots stop at Jupiter, so replace them with the Saturn ones below. This page lists **what to
 capture**, **how to capture it** and **what size Play accepts**.
 
 ## What Google Play accepts (phone screenshots)
@@ -12,30 +12,32 @@ capture**, **how to capture it** and **what size Play accepts**.
   open it in the Windows **Photos** app → **Edit** → **Crop** → aspect ratio **9:16** → drag the box over the part
   you want → **Save as copy**.
 - Use 1080 px wide or more so Play can feature them.
-- You don't need a new **feature graphic** (1024 × 500) or **app icon** (512 × 512). Keep the 1.1 ones.
+- You don't need a new **feature graphic** (1024 × 500) or **app icon** (512 × 512). Keep the ones you have.
 
 ## Shot list (in store order)
 
 | # | What | Save to load | When to press the shortcut |
 |---|------|--------------|-----------------------|
-| 1 | **Liftoff**: big rocket, methalox exhaust, steam on the pad | `jupiter.xml` | 1–3 s after "LIFTOFF!", camera still on the ground |
-| 2 | **Hangar** with the huge 6-stage rocket, forecast "🧊 Europa landing" | `jupiter.xml` | Main menu → PLAY |
-| 3 | **Tech tree** zoomed out over the Mars and Jupiter tiers | `jupiter.xml` | Hangar → TECH TREE, pinch out, tap one node (e.g. Fusion Plasma Drive) so its detail panel shows |
+| 1 | **Liftoff**: the huge 8-stage Saturn rocket with six side cores, steam on the pad | `saturn.xml` | 1–3 s after "LIFTOFF!", camera still on the ground |
+| 2 | **Hangar** with the 8-stage rocket, forecast "🚁 Titan flight" | `saturn.xml` | Main menu → PLAY |
+| 3 | **Tech tree** zoomed out over the Saturn tiers | `saturn.xml` | Hangar → TECH TREE, pinch out, tap one node (e.g. Dragonfly Rotorcraft) so its detail panel shows |
 | 4 | **Early rocket in the clouds** (orange kerosene exhaust with shock diamonds) | `early.xml` | ~5–8 km up, inside the cloud layer |
 | 5 | **Space**: stage separation over the curved Earth | `mars.xml` | 150–2,000 km, right after a "Stage separation" banner |
-| 6 | **Mars flyby** on the way to Jupiter (banner "MARS FLYBY — on to Jupiter!") | `jupiter.xml` | When Mars grows ahead (the warp slows down for a few seconds) |
-| 7 | **Jupiter** growing ahead, its four big moons as bright dots, solar wings unfolded | `jupiter.xml` | Banner "Jupiter approach — orbit insertion ahead" (a few seconds before arrival) |
-| 8 | **Results**: "Landed on Europa!" | `jupiter.xml` | When the results screen appears |
+| 6 | **Jupiter slingshot**: Jupiter sweeping past close by | `saturn.xml` | Banner "🌀 JUPITER SLINGSHOT" (the warp slows down near Jupiter) |
+| 7 | **Saturn and its rings** filling the sky ahead | `saturn.xml` | Banner "⭐ Titan's Orbit" or "⭐ Saturn Arrival", a few seconds before arrival |
+| 8 | **Results**: "Flew on Titan!" | `saturn.xml` | When the results screen appears (the Saturn flight takes about 5 minutes) |
 
 Tips: set **Settings → Graphics: High** first (the saves already do). Don't pause to take a shot, because the pause
-screen darkens the picture. Just take it live.
+screen darkens the picture. Just take it live. The ⭐ milestone banners only show the first time, so if you miss
+one, load the save again (step 2 below) and fly again. `jupiter.xml` is still there if you'd rather show the Jupiter and
+Europa part of the mission (it flies to Jupiter and lands on Europa).
 
 ## How to take them
 
 ### Option A: on the emulator (easiest, and you can load the saves above)
 
-The three files in `store-listing/screenshot-saves/` are ready-made game saves (an early game, Mars program done,
-and the full Jupiter rocket). They work only with a **debug** build on the **emulator**.
+The four files in `store-listing/screenshot-saves/` are ready-made game saves (an early game, Mars program done,
+the full Jupiter rocket, and the full Saturn rocket with every upgrade). They work only with a **debug** build on the **emulator**.
 
 > ⚠️ **Never do this on your own phone.** Loading a screenshot save replaces the progress on that device.
 
@@ -45,9 +47,9 @@ In PowerShell, from `C:\Users\Brandon\AndroidProjects\RocketLauncher`:
 # 1. start the Pixel_Emulator (from the Tools shortcut or Android Studio), then install the debug build
 .\gradlew installDebug
 
-# 2. load a save (change jupiter.xml to early.xml or mars.xml as needed)
+# 2. load a save (change saturn.xml to early.xml, mars.xml or jupiter.xml as needed)
 adb -s emulator-5554 shell am force-stop com.brandonwallace.rocketlauncher
-adb -s emulator-5554 push store-listing\screenshot-saves\jupiter.xml /data/local/tmp/rl.xml
+adb -s emulator-5554 push store-listing\screenshot-saves\saturn.xml /data/local/tmp/rl.xml
 adb -s emulator-5554 shell "run-as com.brandonwallace.rocketlauncher mkdir -p shared_prefs"
 adb -s emulator-5554 shell "cat /data/local/tmp/rl.xml | run-as com.brandonwallace.rocketlauncher sh -c 'cat > shared_prefs/rocket_launcher.xml'"
 
@@ -69,7 +71,7 @@ You can also click the **camera** button on the emulator's side toolbar. It save
 ### Option B: on your phone
 
 Play normally and press **Power + Volume Down** together. Screenshots land in Google Photos → Screenshots. You can
-get shots 1, 2, 4 and 5 this way early on. The Jupiter shots need a late-game save, so use Option A for those.
+get shots 4 and 5 this way early on. The Saturn shots need a late-game save, so use Option A for those.
 
 ## Before uploading
 

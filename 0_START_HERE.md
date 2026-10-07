@@ -1,13 +1,15 @@
-# 0 — START HERE: publishing Rocket Launcher 1.2 to Google Play
+# 0 — START HERE: publishing Rocket Launcher 1.3 to Google Play
 
 This page is for you, Brandon. It covers getting the new version from GitHub to players on Google Play,
 step by step, keeping the **same signing key**, so everyone's update installs over the old version and keeps their
 money and upgrades.
 
-**This update:** version **1.2** (versionCode **4**). It's the same app (`com.brandonwallace.rocketlauncher`) and stays
-**free with no ads**. What's new: the mission continues to Jupiter and Europa, 80 upgrades (was 54), upgrades change
-the rocket and its exhaust much more, a mute button on every screen, and the hidden bonus is now 16.769% (still never
-shown in the game or the store text).
+**This update:** version **1.3** (versionCode **5**). It's the same app (`com.brandonwallace.rocketlauncher`) and stays
+**free with no ads**. What's new: after Europa the mission continues to **Saturn**: a Jupiter slingshot, the rings,
+Saturn orbit, the ice geysers of Enceladus, a probe on Titan and a rotorcraft flight on Titan. Saturn is 2.04× as far
+as Jupiter in real life, so the whole game doubles: 18 mission steps (was 9), 163 upgrades (was 80) over 24 tiers
+(was 12), 35 milestones, 29 badges, and about 182 flights to finish (was about 89). The hidden bonus stays 16.769%
+(still never shown in the game or the store text).
 
 ---
 
@@ -37,7 +39,7 @@ git checkout main
 git pull
 ```
 
-Check it's the new version. This line should print `versionCode = 4`:
+Check it's the new version. This line should print `versionCode = 5`:
 
 ```powershell
 Select-String -Path app\build.gradle.kts -Pattern "versionCode"
@@ -71,32 +73,32 @@ The file appears at: `app\build\outputs\bundle\release\app-release.aab`
   signing** (on some screens it's **App integrity → App signing**) and compare it with the **Upload key certificate**
   SHA-256. They must match. If they match, you're signed correctly.
 
-Copy the `.aab` somewhere safe, for example `Desktop\GrokBot\Android Apps\Games\RocketLauncher-1.2.aab`, and to
+Copy the `.aab` somewhere safe, for example `Desktop\GrokBot\Android Apps\Games\RocketLauncher-1.3.aab`, and to
 Google Drive as a **new file**. Don't put it on GitHub.
 
 ## Step 4: upload it to Play Console
 
 1. Open https://play.google.com/console and click **Rocket Launcher**.
 2. In the left menu open **Test and release**.
-3. Pick the **same track you used for 1.1**:
-   - If 1.1 is **live for everyone**, choose **Production**.
-   - If 1.1 is only in **Internal testing** or **Closed testing**, choose that track.
+3. Pick the **same track you used for 1.2**:
+   - If 1.2 is **live for everyone**, choose **Production**.
+   - If 1.2 is only in **Internal testing** or **Closed testing**, choose that track.
      (New personal developer accounts must run a **closed test with at least 12 testers for 14 days** before Google
      allows Production. If the Production page asks for this, stay on the closed test for now.)
 4. Click **Create new release**.
 5. Under **App bundles**, click **Upload** and pick `app-release.aab`.
-   It should show **versionCode 4 (1.2)**. If it says the version code is already used, tell me and I'll bump it.
-6. **Release name:** leave the default (`4 (1.2)`).
-7. **Release notes:** paste the text from [`store-listing/release-notes-1.2.txt`](store-listing/release-notes-1.2.txt)
+   It should show **versionCode 5 (1.3)**. If it says the version code is already used, tell me and I'll bump it.
+6. **Release name:** leave the default (`5 (1.3)`).
+7. **Release notes:** paste the text from [`store-listing/release-notes-1.3.txt`](store-listing/release-notes-1.3.txt)
    between the `<en-US>` and `</en-US>` tags.
 8. Click **Next**. Warnings in yellow are OK to read and continue. Errors in red must be fixed (send them to me).
 9. Click **Save**, then go to **Publishing overview** (left menu) → **Send changes for review**.
 
 Review usually takes a few hours to a few days. You'll get an email. Players' phones then update automatically
-and **keep their progress**: the game moves 1.0 and 1.1 saves to the new format and keeps a backup copy.
+and **keep their progress**: the game moves 1.0, 1.1 and 1.2 saves to the new format and keeps a backup copy.
 
 > Optional but safest: upload to **Internal testing** first, install it from the Play Store on your own phone
-> (it updates over 1.1), check your money and upgrades are still there, then on that release click
+> (it updates over 1.2), check your money and upgrades are still there, then on that release click
 > **Promote release** → Production (or your closed track).
 
 > ⚠️ Don't install a **debug** build on the phone that has the Play version. The signatures differ, so Android
@@ -127,8 +129,8 @@ Click **Save**. Listing changes also go through review, together with the releas
 ## Step 7: after it's live
 
 ```powershell
-git tag v1.2-play
-git push origin v1.2-play
+git tag v1.3-play
+git push origin v1.3-play
 ```
 
 That marks exactly which code is on Google Play.
@@ -138,9 +140,10 @@ That marks exactly which code is on Google Play.
 ## Quick answers
 
 - **"Will players lose their money?"** No. Same app id and same save file; the save is upgraded on first launch
-  (schema 3 → 4) and the old one is kept as a backup. The automated tests check this, including a real 1.1 save.
+  (schema 4 → 5) and the old one is kept as a backup. The automated tests check this, including real 1.1 and 1.2
+  saves. Players who already landed on Europa go straight on to the Saturn chapter.
 - **"Is it still free with no ads?"** Yes. There are no ads, no purchases and no internet permission.
-- **"Next update?"** Change `versionCode` to **5** and `versionName` to "1.3" in `app\build.gradle.kts`, then repeat
+- **"Next update?"** Change `versionCode` to **6** and `versionName` to "1.4" in `app\build.gradle.kts`, then repeat
   steps 2–7. Every upload needs a higher versionCode than the last one.
 - **"The build says it can't find the SDK."** Android Studio sets this up the first time it opens the project.
   Open the folder once in Android Studio and let it finish syncing, then run the commands again.

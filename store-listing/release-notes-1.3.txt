@@ -1,0 +1,5 @@
+Version 1.3 – On to Saturn!
+• After Europa the mission flies on to Saturn: slingshot past Jupiter, cross the rings, orbit Saturn, fly through Enceladus' ice geysers, land a probe on Titan and fly a rotorcraft there
+• Saturn is twice as far as Jupiter, so the game doubles: 18 mission steps and 163 upgrades over 24 tiers
+• Solar sails, 8-stage rockets and Saturn's rings in 3D
+• Your money and upgrades carry over automatically

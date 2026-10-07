@@ -1,6 +1,0 @@
-Version 1.2 – On to Jupiter!
-• The mission now continues past Mars, through the asteroid belt, into Jupiter orbit and down to a landing on Europa
-• 26 new upgrades: 80 in all, over 12 tiers
-• Upgrades change your rocket much more: new engines, solar wings, a gold radiation vault, a Europa lander, and every engine type has its own exhaust
-• Mute button on every screen
-• Your money and upgrades carry over automatically
