@@ -28,18 +28,38 @@ object Physics {
      * retarding pull that demands ~8 km/s of hyperbolic excess speed (a compressed trans-Mars injection).
      */
     const val SUN_PULL = 6.0e-4
+    /** Past Mars' orbit the Sun's pull is weaker (it falls off with distance), so the long Jupiter leg is a gentler climb. */
+    const val SUN_PULL_OUTER = 3.2e-4
+    const val JUPITER_RADIUS = 69_911_000.0
+    /** Distance from Earth's surface to Jupiter's cloud tops at a close approach (opposition, ~588 million km). */
+    const val JUPITER_ARRIVAL_ALT = 5.88e11
+    const val JUPITER_CENTER_DIST = JUPITER_ARRIVAL_ALT + JUPITER_RADIUS + R_EARTH
+    /** Where the main asteroid belt starts on the way out to Jupiter. */
+    const val ASTEROID_BELT_START = 1.6e11
+    const val ASTEROID_BELT_END = 3.9e11
     const val MOON_WARP_CAP = 60_000.0
     const val MARS_WARP_CAP = 3_000_000.0
+    const val JUPITER_WARP_CAP = 6_000_000.0
+    /** Jupiter flights slow the time warp down around Mars so the flyby is actually visible (a couple of seconds). */
+    const val MARS_FLYBY_WARP = 2_500.0
     /**
      * Time-warp limit while the engines are actually burning. Without it a deep-space burn ran at x70,000 and an
      * upper stage emptied in a fraction of a real second, making the capture/landing fuel window ~1 s wide.
      */
     const val BURN_WARP_CAP = 50.0
 
-    fun gravity(alt: Double): Double { val r = R_EARTH + max(alt, 0.0); return MU / (r * r) + (if (alt > EARTH_SOI) SUN_PULL else 0.0) }
+    /** Constant "uphill" pull of the Sun along the flight path (0 inside Earth's SOI). */
+    fun sunPull(alt: Double): Double = when {
+        alt <= EARTH_SOI -> 0.0
+        alt <= MARS_ARRIVAL_ALT -> SUN_PULL
+        else -> SUN_PULL_OUTER
+    }
+
+    fun gravity(alt: Double): Double { val r = R_EARTH + max(alt, 0.0); return MU / (r * r) + sunPull(alt) }
 
     /** Specific potential energy matching [gravity] (J/kg). */
-    fun potential(alt: Double): Double = -MU / (R_EARTH + max(alt, 0.0)) + SUN_PULL * max(0.0, alt - EARTH_SOI)
+    fun potential(alt: Double): Double = -MU / (R_EARTH + max(alt, 0.0)) +
+        SUN_PULL * (alt - EARTH_SOI).coerceIn(0.0, MARS_ARRIVAL_ALT - EARTH_SOI) + SUN_PULL_OUTER * max(0.0, alt - MARS_ARRIVAL_ALT)
 
     /** True when the current coast (no more burning) carries the rocket to [targetAlt]. */
     fun bound(alt: Double, vy: Double, targetAlt: Double): Boolean =
@@ -55,6 +75,25 @@ object Physics {
         val km = max(0.0, alt) / 1000.0
         if (alt < KARMAN) return 1.0 + 3.0 * (km / 100.0).pow(1.2)
         return min(cap, (km / 100.0).pow(1.3) + (km - 100.0) / 25.0 + 3.0)
+    }
+
+    /** Warp cap for this point of a flight toward [target] (Mars flights keep the 1.1 cap exactly). */
+    fun warpCap(target: MissionTarget, alt: Double): Double = when (target) {
+        MissionTarget.MARS -> MARS_WARP_CAP
+        MissionTarget.JUPITER -> min(JUPITER_WARP_CAP, MARS_FLYBY_WARP + abs(alt - MARS_ARRIVAL_ALT) * 4e-4)
+    }
+}
+
+/**
+ * Where the one mission is flying on this launch. Mars until the first Mars landing; after that every flight
+ * keeps going past Mars (a flyby) and across the asteroid belt to Jupiter. Derived from the save, never picked.
+ */
+enum class MissionTarget(val title: String, val arrivalAlt: Double, val icon: String) {
+    MARS("Mars", Physics.MARS_ARRIVAL_ALT, "🔴"),
+    JUPITER("Jupiter", Physics.JUPITER_ARRIVAL_ALT, "🪐");
+
+    companion object {
+        fun of(s: SaveData): MissionTarget = if (s.marsLandings > 0) JUPITER else MARS
     }
 }
 
@@ -170,20 +209,31 @@ class FlightState(val spec: RocketSpec) {
 }
 
 class SimResult(
-    val maxAlt: Double, val topSpeed: Double, val reachedMars: Boolean, val destroyed: Boolean, val time: Double, val warpedRealTime: Double,
-    val passedMoon: Boolean = maxAlt >= Physics.MOON_ARRIVAL_ALT,
-    val marsOrbit: Boolean = false, val marsLanded: Boolean = false,
+    val maxAlt: Double, val topSpeed: Double,
+    /** The flight reached its target (Mars or Jupiter). */
+    val arrived: Boolean,
+    val destroyed: Boolean, val time: Double, val warpedRealTime: Double,
+    val target: MissionTarget = MissionTarget.MARS,
+    /** Captured into orbit / landed at the target (Mars, or Jupiter orbit / Europa landing). */
+    val orbit: Boolean = false, val landed: Boolean = false,
 ) {
+    val passedMoon: Boolean get() = maxAlt >= Physics.MOON_ARRIVAL_ALT
     /** Kept for older callers: true when the flight got past the Moon. */
     val reachedMoon: Boolean get() = passedMoon
+    val reachedMars: Boolean get() = if (target == MissionTarget.MARS) arrived else maxAlt >= Physics.MARS_ARRIVAL_ALT
+    val marsOrbit: Boolean get() = target == MissionTarget.MARS && orbit
+    val marsLanded: Boolean get() = target == MissionTarget.MARS && landed
+    val reachedJupiter: Boolean get() = target == MissionTarget.JUPITER && arrived
+    val jupiterOrbit: Boolean get() = target == MissionTarget.JUPITER && orbit
+    val europaLanded: Boolean get() = target == MissionTarget.JUPITER && landed
 }
 
 /**
  * Offline run of the real [Autopilot] (same throttle/nav-cut rules as the live flight, no hazards) along the one
- * mission path to Mars. Used by the hangar prediction and by unit tests.
+ * mission path to [target]. Used by the hangar prediction and by unit tests.
  */
-fun simulateAutopilot(spec: RocketSpec, maxSimTime: Double = 3.0e8): SimResult {
-    val targetAlt = Physics.MARS_ARRIVAL_ALT
+fun simulateAutopilot(spec: RocketSpec, target: MissionTarget = MissionTarget.MARS, maxSimTime: Double = 3.0e8): SimResult {
+    val targetAlt = target.arrivalAlt
     val s = FlightState(spec)
     val ev = ArrayList<FlightEvent>()
     var realTime = 0.0
@@ -191,18 +241,18 @@ fun simulateAutopilot(spec: RocketSpec, maxSimTime: Double = 3.0e8): SimResult {
     while (s.time < maxSimTime) {
         val dt = if (s.alt < 160_000) 0.02 else (s.alt / max(abs(s.vy), 1.0) * 0.002).coerceIn(0.02, 3600.0)
         // while burning, keep steps short enough that the nav cut lands close to the real engine's
-        val burning = Autopilot.throttle(spec, s) > 0 && s.hasThrustAvailable()
+        val burning = Autopilot.throttle(spec, s, target) > 0 && s.hasThrustAvailable()
         val h = if (burning && s.alt >= 160_000) min(dt, 2.0) else dt
-        s.step(h, Autopilot.throttle(spec, s), ev)
+        s.step(h, Autopilot.throttle(spec, s, target), ev)
         ev.clear()
-        realTime += h / Physics.timeWarp(s.alt, Physics.MARS_WARP_CAP)
-        if (s.hull <= 0) return SimResult(s.maxAlt, s.topSpeed, false, true, s.time, realTime)
+        realTime += h / Physics.timeWarp(s.alt, Physics.warpCap(target, s.alt))
+        if (s.hull <= 0) return SimResult(s.maxAlt, s.topSpeed, false, true, s.time, realTime, target)
         if (s.alt >= targetAlt) {
-            val a = MarsArrival.evaluate(spec, s.stage, s.remainingFuel())
-            return SimResult(s.maxAlt, s.topSpeed, true, false, s.time, realTime, marsOrbit = a.orbit, marsLanded = a.landed)
+            val a = Arrival.evaluate(spec, target, s.stage, s.remainingFuel())
+            return SimResult(s.maxAlt, s.topSpeed, true, false, s.time, realTime, target, a.orbit, a.landed)
         }
         if (s.liftedOff && s.vy < 0) { descending += h; if (descending > 1.0) break }
         if (s.time > 5 && !s.liftedOff) break
     }
-    return SimResult(s.maxAlt, s.topSpeed, false, false, s.time, realTime)
+    return SimResult(s.maxAlt, s.topSpeed, false, false, s.time, realTime, target)
 }

@@ -720,6 +720,14 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
                     setDraw(l, m, MatType.PLAIN, emissive = meteorEm)
                     (if (eSeed[i] > 0.5f) em.rock else em.rock2).draw()
                 }
+                EntityKind.ASTEROID -> {
+                    // cold, dark belt asteroid (no entry glow), lumpy and slowly tumbling
+                    val r = Math.toDegrees(eRot[i].toDouble()).toFloat()
+                    val sc = 2.2f + 1.4f * eSeed[i]
+                    Mat.trs(m, x, y, z, sc, sc * (0.7f + 0.3f * eSeed[i]), sc * 0.85f, rz = r, rx = r * 0.4f, ry = eSeed[i] * 360f)
+                    setDraw(l, m, MatType.PLAIN, tint = 0.75f)
+                    (if (eSeed[i] > 0.5f) em.rock2 else em.rock).draw()
+                }
             }
         }
     }

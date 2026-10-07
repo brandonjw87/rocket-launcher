@@ -26,11 +26,16 @@ enum class Milestone(val title: String, val altitude: Double, val bonus: Long) {
     INTERPLANETARY("Interplanetary Space", 5.0e9, 6_000),
     MARS_APPROACH("Mars Approach", 5.0e10, 9_000),
     MARS("Mars Arrival", Physics.MARS_ARRIVAL_ALT, 20_000),
+    // 1.2: the mission continues past Mars to Jupiter
+    ASTEROID_BELT("Asteroid Belt", Physics.ASTEROID_BELT_START, 30_000),
+    JUPITER_APPROACH("Jupiter Approach", 5.0e11, 45_000),
+    JUPITER("Jupiter Arrival", Physics.JUPITER_ARRIVAL_ALT, 80_000),
 }
 
 /**
  * The single continuous mission: launch → space → orbit → past the Moon → Mars transfer → Mars orbit →
- * Mars landing, all on one flight path. Progress is derived from the save (no rewards of its own).
+ * Mars landing → past Mars to Jupiter → Jupiter orbit → Europa landing, all on one flight path. Progress is
+ * derived from the save (no rewards of its own). Enum names are not stored in saves.
  */
 enum class Mission(val title: String, val desc: String, val icon: String) {
     SPACE("Reach space", "Cross the Kármán line at 100 km", "🌌"),
@@ -38,7 +43,10 @@ enum class Mission(val title: String, val desc: String, val icon: String) {
     MOON("Fly past the Moon", "Keep climbing past the Moon's distance (384,000 km)", "🌕"),
     MARS_TRANSFER("Mars transfer", "Escape Earth's pull on the way to Mars", "🚀"),
     MARS_ORBIT("Mars orbit", "Reach Mars with 3% fuel or a spare stage — Deep-Space Navigation saves it", "🔴"),
-    MARS_LANDING("Land on Mars", "PICA-X aeroshell + supersonic parachute + landing fuel", "🔴");
+    MARS_LANDING("Land on Mars", "PICA-X aeroshell + supersonic parachute + landing fuel", "🔴"),
+    JUPITER_TRANSFER("Cross the asteroid belt", "Fly past Mars and on into the asteroid belt toward Jupiter", "☄️"),
+    JUPITER_ORBIT("Jupiter orbit", "Reach Jupiter with 5% fuel or a spare stage, inside a radiation vault", "🪐"),
+    EUROPA_LANDING("Land on Europa", "Europa lander + radiation-hardened electronics + landing fuel", "🧊");
 
     fun done(s: SaveData): Boolean = when (this) {
         SPACE -> Milestone.KARMAN in s.milestones
@@ -47,6 +55,9 @@ enum class Mission(val title: String, val desc: String, val icon: String) {
         MARS_TRANSFER -> Milestone.SOI in s.milestones
         MARS_ORBIT -> s.marsOrbits > 0 || s.marsLandings > 0
         MARS_LANDING -> s.marsLandings > 0
+        JUPITER_TRANSFER -> Milestone.ASTEROID_BELT in s.milestones || s.jupiterOrbits > 0 || s.europaLandings > 0
+        JUPITER_ORBIT -> s.jupiterOrbits > 0 || s.europaLandings > 0
+        EUROPA_LANDING -> s.europaLandings > 0
     }
 
     companion object {
@@ -69,6 +80,10 @@ enum class Achievement(val title: String, val desc: String) {
     TREE("Chief Engineer", "Research the whole tech tree"),
     MARS_ORBIT("Red Planet Orbit", "Capture into orbit around Mars"),
     MARS_LANDING("Footprints on Mars", "Land on Mars"),
+    // 1.2
+    ASTEROID_BELT("Rock Hopper", "Cross into the asteroid belt"),
+    JUPITER_ORBIT("King of the Planets", "Capture into orbit around Jupiter"),
+    EUROPA_LANDING("Ice Explorer", "Land on Europa"),
 }
 
 /**
@@ -93,22 +108,30 @@ class Settlement(
 
 object Economy {
     /**
-     * Hidden compound "bank" interest on money left unspent at launch: 6.769% per launch. The ONLY place the
-     * rate is defined. Math is done in BigDecimal (BigDecimal.valueOf(0.06769) is exactly 0.06769), so the
-     * product of a whole-dollar balance and the rate is exact to 1/100,000 of a dollar.
+     * Hidden compound "bank" interest on money left unspent at launch: 16.769% per launch (1.2; was 6.769% in
+     * 1.1). The ONLY place the rate is defined. Math is done in BigDecimal (BigDecimal.valueOf(0.16769) is exactly
+     * 0.16769), so the product of a whole-dollar balance and the rate is exact to 1/100,000 of a dollar.
      */
-    const val INTEREST_RATE = 0.06769
+    const val INTEREST_RATE = 0.16769
     private val RATE: BigDecimal = BigDecimal.valueOf(INTEREST_RATE)
     /** Carry precision: rate has 5 decimals and balances are whole dollars, so 5 decimals is exact. */
     const val CARRY_SCALE = 5
 
-    /** Pay for the highest altitude reached. Grows fast in the atmosphere, logarithmically in space. */
+    /** Extra distance pay for the leg past Mars, reaching this at Jupiter (1.2). */
+    const val DEEP_SPACE_PAY = 20_000.0
+
+    /**
+     * Pay for the highest altitude reached. Grows fast in the atmosphere, logarithmically in space, and past Mars
+     * (Jupiter flights) by distance travelled beyond Mars. Up to Mars it is exactly the 1.1 formula.
+     */
     fun altitudePay(maxAltM: Double): Long {
         val km = maxAltM / 1000.0
         if (km <= 0.0) return 0
         val low = 95.0 * km.coerceAtMost(100.0).pow(0.6)
         val high = if (km > 100.0) 420.0 * ln(km / 100.0) else 0.0
-        return (low + high).roundToLong()
+        val beyondMars = (maxAltM - Physics.MARS_ARRIVAL_ALT) / (Physics.JUPITER_ARRIVAL_ALT - Physics.MARS_ARRIVAL_ALT)
+        val deep = if (beyondMars > 0.0) DEEP_SPACE_PAY * beyondMars.coerceAtMost(1.0).pow(0.7) else 0.0
+        return (low + high + deep).roundToLong()
     }
 
     /** Exact interest on the money left unspent at launch (no rounding at all). */
@@ -147,6 +170,7 @@ object Economy {
  *  - 2: Rocket Launcher 1.0 (Moon/Mars destination picker "dest", tilt steering "tilt").
  *  - 3: Rocket Launcher 1.1 — single Moon→Mars mission (no "dest"), autopilot only (no "tilt"), hidden
  *       interest remainder "ic".
+ *  - 4: Rocket Launcher 1.2 — the mission continues to Jupiter: career counters "jupOrbit" and "europa".
  * Rules for future builds: bump [SAVE_SCHEMA_VERSION], add a step to [MIGRATIONS] that renames/removes keys,
  * give every new field a default. Unknown keys (e.g. written by a newer build) are kept in [extras] and written
  * back untouched, so nothing is ever wiped.
@@ -164,6 +188,8 @@ data class SaveData(
     val moonLandings: Int = 0,
     val marsOrbits: Int = 0,
     val marsLandings: Int = 0,
+    val jupiterOrbits: Int = 0,
+    val europaLandings: Int = 0,
     val soundOn: Boolean = true,
     /** 0 = Low, 1 = Medium, 2 = High. */
     val quality: Int = 1,
@@ -173,7 +199,7 @@ data class SaveData(
     val extras: Map<String, String> = emptyMap(),
 ) {
     fun has(id: String) = id in tech
-    fun canResearch(node: TechNode) = TechTree.isAvailable(tech, node) && money >= node.cost
+    fun canResearch(node: TechNode) = TechTree.isAvailable(this, node) && money >= node.cost
 
     /** New save after researching a node, or null if locked / unaffordable / owned. */
     fun research(id: String): SaveData? {
@@ -192,6 +218,8 @@ data class SaveData(
         append(";moon=").append(moonLandings)
         append(";marsOrbit=").append(marsOrbits)
         append(";mars=").append(marsLandings)
+        append(";jupOrbit=").append(jupiterOrbits)
+        append(";europa=").append(europaLandings)
         append(";sound=").append(soundOn)
         append(";q=").append(quality)
         append(";ic=").append(interestCarry.setScale(Economy.CARRY_SCALE, RoundingMode.FLOOR).toPlainString())
@@ -203,10 +231,10 @@ data class SaveData(
 
     companion object {
         /** Current save schema. See the class doc for the history. */
-        const val SAVE_SCHEMA_VERSION = 3
+        const val SAVE_SCHEMA_VERSION = 4
 
         /** Keys written by [serialize]; anything else found in a save is preserved in [extras]. */
-        val KNOWN_KEYS = setOf("v", "money", "bestAlt", "bestSpd", "flights", "earned", "moon", "marsOrbit", "mars", "sound", "q", "ic", "tech", "ms", "ach")
+        val KNOWN_KEYS = setOf("v", "money", "bestAlt", "bestSpd", "flights", "earned", "moon", "marsOrbit", "mars", "jupOrbit", "europa", "sound", "q", "ic", "tech", "ms", "ach")
 
         /** Tech/milestone/achievement ids renamed between builds (old -> new). Empty so far; add, never remove. */
         val TECH_RENAMES: Map<String, String> = emptyMap()
@@ -220,6 +248,10 @@ data class SaveData(
                 m.remove("dest")                             // destination picker removed: one Moon→Mars mission
                 m.remove("tilt")                             // tilt steering removed: autopilot only
                 m.putIfAbsent("ic", "0")                     // new: hidden interest remainder
+            },
+            3 to { m ->                                      // 1.1 -> 1.2: Jupiter leg (money, tech, milestones untouched)
+                m.putIfAbsent("jupOrbit", "0")
+                m.putIfAbsent("europa", "0")
             },
         )
 
@@ -268,6 +300,8 @@ data class SaveData(
                 moonLandings = m["moon"]?.toIntOrNull() ?: 0,
                 marsOrbits = m["marsOrbit"]?.toIntOrNull() ?: 0,
                 marsLandings = m["mars"]?.toIntOrNull() ?: 0,
+                jupiterOrbits = m["jupOrbit"]?.toIntOrNull() ?: 0,
+                europaLandings = m["europa"]?.toIntOrNull() ?: 0,
                 soundOn = m["sound"]?.toBooleanStrictOrNull() ?: true,
                 quality = (m["q"]?.toIntOrNull() ?: 1).coerceIn(0, 2),
                 interestCarry = carry.setScale(Economy.CARRY_SCALE, RoundingMode.FLOOR),

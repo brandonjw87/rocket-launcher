@@ -31,6 +31,9 @@ data class FlightResult(
     /** The flight got past the Moon (the mission continues on to Mars). */
     val moonPassed: Boolean, val hits: Int,
     val marsReached: Boolean = false, val marsOrbit: Boolean = false, val marsLanded: Boolean = false,
+    /** Where this flight was headed (Mars until the first Mars landing, then Jupiter). */
+    val target: MissionTarget = MissionTarget.MARS,
+    val jupiterReached: Boolean = false, val jupiterOrbit: Boolean = false, val europaLanded: Boolean = false,
 )
 
 data class HudState(
@@ -49,17 +52,19 @@ data class HudState(
     val zone: String = "",
     val warp: Float = 1f,
     val throttle: Float = 0f,
-    /** Log-scale progress along the one mission path (Earth → Moon → Mars). */
+    /** Log-scale progress along the one mission path (Earth → Moon → Mars → Jupiter) toward this flight's target. */
     val missionProgress: Float = 0f,
+    /** This flight's target (Mars, or Jupiter once Mars has been landed on). */
+    val target: MissionTarget = MissionTarget.MARS,
     val banner: String = "",
     val bannerId: Int = 0,
     val hits: Int = 0,
     val ending: Boolean = false,
     val mach: Float = 0f,
     val results: FlightResult? = null,
-    /** Coasting from here reaches Mars. */
-    val marsBound: Boolean = false,
-    /** While Mars-bound: will the remaining fuel allow capture / landing? */
+    /** Coasting from here reaches the target. */
+    val bound: Boolean = false,
+    /** While bound for the target: will the remaining fuel allow capture / landing? */
     val arrivalNote: String = "",
     /** Deep-space nav computer is holding the engines off (on course). */
     val navCut: Boolean = false,
@@ -69,6 +74,8 @@ data class HudState(
     val evading: Boolean = false,
     /** The flight has passed the Moon. */
     val moonPassed: Boolean = false,
+    /** Sound on (for the quick mute button). */
+    val soundOn: Boolean = true,
 )
 
 /** Visual-only events the renderer turns into particles. */
@@ -108,6 +115,8 @@ class GameEngine(private val store: SaveStore) {
     var spec = RocketSpec(_save.value.tech); private set
     var specVersion = 0; private set
     var flight: FlightState? = null; private set
+    /** Target of the current/last flight (set at launch from the save). */
+    var target: MissionTarget = MissionTarget.of(_save.value); private set
     val world = World()
     val spent = ArrayList<SpentPart>()
     /** Fx produced since the renderer last drained it. */
@@ -140,11 +149,17 @@ class GameEngine(private val store: SaveStore) {
     private var hits = 0
     private var bannerText = ""
     private var bannerId = 0
+    /** Banners wait their turn, so several in one moment (zone + milestone + badge) are all readable. */
+    private val bannerQueue = ArrayDeque<String>()
+    private var bannerCooldown = 0f
     private var endReason = ""
     private var moonPassed = false
     private var marsReached = false
     private var marsOrbit = false
     private var marsLanded = false
+    private var jupiterReached = false
+    private var jupiterOrbit = false
+    private var europaLanded = false
     private val newAch = ArrayList<Achievement>()
     private val newMilestones = ArrayList<Milestone>()
     private var zoneIdx = 0
@@ -153,7 +168,7 @@ class GameEngine(private val store: SaveStore) {
     private val flightEvents = ArrayList<FlightEvent>()
     private val worldEvents = ArrayList<WorldEvent>()
 
-    private val zones = listOf(
+    private val nearZones = listOf(
         2_500.0 to "Lower clouds",
         12_000.0 to "Stratosphere",
         50_000.0 to "Mesosphere — the sky turns black",
@@ -162,12 +177,26 @@ class GameEngine(private val store: SaveStore) {
         2_000_000.0 to "High Earth orbit",
         20_000_000.0 to "Deep space",
         300_000_000.0 to "🌕 Approaching the Moon",
+    )
+    private val marsZones = nearZones + listOf(
         Physics.MOON_ARRIVAL_ALT to "🌕 LUNAR FLYBY — past the Moon, on to Mars!",
         6.0e8 to "🚀 TRANS-MARS INJECTION — leaving Earth's pull",
         1.5e10 to "☀️ Interplanetary cruise",
         3.0e10 to "🔴 Mars grows ahead",
         5.3e10 to "🔴 Mars approach — capture burn ahead",
     )
+    private val jupiterZones = nearZones + listOf(
+        Physics.MOON_ARRIVAL_ALT to "🌕 LUNAR FLYBY — on to Mars and Jupiter!",
+        6.0e8 to "🚀 TRANS-JUPITER INJECTION — leaving Earth's pull",
+        1.5e10 to "☀️ Interplanetary cruise",
+        4.0e10 to "🔴 Mars grows ahead",
+        Physics.MARS_ARRIVAL_ALT to "🔴 MARS FLYBY — on to Jupiter!",
+        Physics.ASTEROID_BELT_START to "☄️ ENTERING THE ASTEROID BELT",
+        Physics.ASTEROID_BELT_END to "☄️ Through the asteroid belt",
+        3.5e11 to "🪐 Jupiter grows ahead",
+        5.7e11 to "🪐 Jupiter approach — orbit insertion ahead",
+    )
+    private val zones get() = if (target == MissionTarget.JUPITER) jupiterZones else marsZones
 
     fun zoneName(alt: Double): String = when {
         alt < 2_500 -> "Lower atmosphere"
@@ -178,7 +207,11 @@ class GameEngine(private val store: SaveStore) {
         alt < 36_000_000 -> "High orbit"
         alt < Physics.EARTH_SOI -> "Cislunar space"
         alt < 5.0e10 -> "Interplanetary space"
-        else -> "Mars approach"
+        alt < Physics.MARS_ARRIVAL_ALT || target == MissionTarget.MARS -> "Mars approach"
+        alt < Physics.ASTEROID_BELT_START -> "Beyond Mars"
+        alt < Physics.ASTEROID_BELT_END -> "Asteroid belt"
+        alt < 5.0e11 -> "Outer solar system"
+        else -> "Jupiter approach"
     }
 
     // ---------------- UI commands (main thread) ----------------
@@ -192,6 +225,7 @@ class GameEngine(private val store: SaveStore) {
         resetVisuals()
         // hazards are laid out deterministically per flight number: same rocket + same flight = same outcome
         world.reset(hazardSeed(_save.value.flights))
+        target = MissionTarget.of(_save.value)
         balanceAtLaunch = _save.value.money   // money left unspent at launch
         phase = Phase.COUNTDOWN
         countdown = 3.6f
@@ -222,12 +256,14 @@ class GameEngine(private val store: SaveStore) {
         true
     }
 
-    fun setSound(on: Boolean) = synchronized(lock) { commit(_save.value.copy(soundOn = on)) }
+    fun setSound(on: Boolean) = synchronized(lock) { commit(_save.value.copy(soundOn = on)); publishHud() }
+    /** Quick mute button (every screen): flips sound on/off and saves it. */
+    fun toggleSound() = setSound(!_save.value.soundOn)
     fun setQuality(q: Int) = synchronized(lock) { commit(_save.value.copy(quality = q.coerceIn(0, 2))) }
     fun resetProgress() = synchronized(lock) {
         val s = _save.value
         commit(SaveData(soundOn = s.soundOn, quality = s.quality))
-        rebuildSpec(); phase = Phase.MENU; resetVisuals()
+        rebuildSpec(); target = MissionTarget.of(_save.value); phase = Phase.MENU; resetVisuals()
     }
 
     /** Debug/test helper. */
@@ -248,7 +284,20 @@ class GameEngine(private val store: SaveStore) {
     }
     private fun rebuildSpec() { spec = RocketSpec(_save.value.tech); specVersion++ }
     private fun sfx(s: Sfx) { if (_save.value.soundOn) sfxListener?.invoke(s) }
-    private fun showBanner(t: String) { bannerText = t; bannerId++ }
+    /** Queue a banner; [urgent] ones (arrival, hull failure) jump the queue and show right away. */
+    private fun showBanner(t: String, urgent: Boolean = false) {
+        if (urgent) { bannerQueue.addFirst(t); bannerCooldown = 0f; return }
+        if (bannerQueue.size >= 6) bannerQueue.removeFirst()
+        bannerQueue.addLast(t)
+    }
+
+    private fun updateBanners(dt: Float) {
+        bannerCooldown -= dt
+        if (bannerCooldown <= 0f && bannerQueue.isNotEmpty()) {
+            bannerText = bannerQueue.removeFirst(); bannerId++
+            bannerCooldown = if (bannerQueue.isEmpty()) 0.4f else 1.5f
+        }
+    }
 
     private fun resetVisuals() {
         flight = null; world.reset((System.nanoTime() and 0xffff).toInt()); spent.clear()
@@ -280,6 +329,7 @@ class GameEngine(private val store: SaveStore) {
         for (p in spent) { p.px = p.x; p.py = p.y; p.prot = p.rot }
         if (!paused) {
             time += dt
+            updateBanners(dt)
             when (phase) {
                 Phase.COUNTDOWN -> updateCountdown(dt)
                 Phase.FLIGHT -> updateFlight(dt)
@@ -305,7 +355,10 @@ class GameEngine(private val store: SaveStore) {
         flight = FlightState(spec)
         autoThrottle = 1.0; autoSteer = 0f
         endTimer = 0f; descendTimer = 0f; hits = 0
-        endReason = ""; moonPassed = false; marsReached = false; marsOrbit = false; marsLanded = false; newAch.clear(); newMilestones.clear(); zoneIdx = 0
+        endReason = ""; moonPassed = false; marsReached = false; marsOrbit = false; marsLanded = false
+        jupiterReached = false; jupiterOrbit = false; europaLanded = false
+        newAch.clear(); newMilestones.clear(); zoneIdx = 0
+        bannerQueue.clear(); bannerCooldown = 0f
         sfx(Sfx.LIFTOFF)
         showBanner("🚀 LIFTOFF!")
     }
@@ -313,32 +366,32 @@ class GameEngine(private val store: SaveStore) {
     private fun updateFlight(dt: Float) {
         val f = flight ?: return
         // ---- autopilot (no player input): throttle + hazard avoidance from the researched tech only
-        autoThrottle = if (ending || exploded) 0.0 else Autopilot.throttle(spec, f)
+        autoThrottle = if (ending || exploded) 0.0 else Autopilot.throttle(spec, f, target)
         autoSteer = if (ending || exploded) 0f else Autopilot.steer(spec, world.entities, laneX)
         val holding = autoThrottle > 0.0
 
-        val target = (autoSteer.coerceIn(-1f, 1f) * spec.maxTiltRad).toFloat()
-        tilt += (target - tilt) * min(1f, dt * spec.steerResponse)
+        val tiltGoal = (autoSteer.coerceIn(-1f, 1f) * spec.maxTiltRad).toFloat()
+        tilt += (tiltGoal - tilt) * min(1f, dt * spec.steerResponse)
         f.tilt = tilt.toDouble()
         laneVx = sin(tilt) * 75f
         laneX += laneVx * dt
         if (laneX > World.LANE) { laneX = World.LANE; laneVx = 0f }
         if (laneX < -World.LANE) { laneX = -World.LANE; laneVx = 0f }
 
-        val arrived = marsReached
-        val targetAlt = Physics.MARS_ARRIVAL_ALT
+        val targetAlt = target.arrivalAlt
+        val arrived = if (target == MissionTarget.MARS) marsReached else jupiterReached
         if (!arrived && !exploded) {
-            val coastWarp = Physics.timeWarp(f.alt, Physics.MARS_WARP_CAP)
+            val coastWarp = Physics.timeWarp(f.alt, Physics.warpCap(target, f.alt))
             val burning = holding && f.hasThrustAvailable()
-            val target = if (burning) min(coastWarp, Physics.BURN_WARP_CAP) else coastWarp
+            val warpGoal = if (burning) min(coastWarp, Physics.BURN_WARP_CAP) else coastWarp
             // drop instantly when a burn starts (fuel use stays controllable), ease back up when coasting
-            warp = if (target <= warp) target else warp + (target - warp) * (1.0 - kotlin.math.exp(-dt * 1.2))
+            warp = if (warpGoal <= warp) warpGoal else warp + (warpGoal - warp) * (1.0 - kotlin.math.exp(-dt * 1.2))
             val simDt = dt * warp
             val maxStep = if (f.alt < 160_000) 0.02 else min(30.0, 0.02 * warp)
             val n = ceil(simDt / maxStep).toInt().coerceIn(1, 300)
             val h = simDt / n
             for (i in 0 until n) {
-                f.step(h, Autopilot.throttle(spec, f).takeIf { holding } ?: 0.0, flightEvents)
+                f.step(h, Autopilot.throttle(spec, f, target).takeIf { holding } ?: 0.0, flightEvents)
                 if (f.alt >= targetAlt) break
             }
         }
@@ -423,6 +476,8 @@ class GameEngine(private val store: SaveStore) {
             moonPassed = true
             unlock(Achievement.MOON_LANDING)   // "Lunar Flyby" badge (enum name kept for old saves)
         }
+        if (target == MissionTarget.JUPITER && !marsReached && f.maxAlt >= Physics.MARS_ARRIVAL_ALT) marsReached = true
+        if (f.maxAlt >= Physics.ASTEROID_BELT_START) unlock(Achievement.ASTEROID_BELT)
         for (m in Milestone.entries) {
             if (f.maxAlt >= m.altitude && m !in _save.value.milestones && m !in newMilestones) {
                 newMilestones.add(m)
@@ -447,9 +502,9 @@ class GameEngine(private val store: SaveStore) {
             f.hull <= 0 -> {
                 exploded = true; ending = true; endTimer = 2.4f; endReason = "Rocket destroyed"
                 fx.add(Fx.Explode(laneX, remainingLength() * 0.5f)); sfx(Sfx.EXPLODE); shake = 2f
-                showBanner("💥 Hull failure!")
+                showBanner("💥 Hull failure!", urgent = true)
             }
-            f.alt >= Physics.MARS_ARRIVAL_ALT -> arriveAtMars(f)
+            f.alt >= target.arrivalAlt -> if (target == MissionTarget.MARS) arriveAtMars(f) else arriveAtJupiter(f)
             f.liftedOff && f.alt <= 0.0 && f.vy <= 0 -> { ending = true; endTimer = 0.8f; endReason = "Crashed back to Earth" }
             else -> {
                 val canBurn = holding && f.hasThrustAvailable()
@@ -467,6 +522,13 @@ class GameEngine(private val store: SaveStore) {
         val last = spec.stages.last().fuelMass
         val spare = f.stage < spec.stages.size - 1
         val fuel = f.remainingFuel()
+        if (target == MissionTarget.JUPITER) return when {
+            !(spare || fuel >= RocketSpec.JUPITER_CAPTURE_FUEL_FRAC * last) -> "⚠ not enough fuel for Jupiter orbit"
+            !spec.jupiterRadiationReady -> "fuel ✓ · Jupiter orbit needs a Radiation Vault"
+            spec.europaLandingReady && (spare || fuel >= spec.europaLandingFuelFrac * last) -> "Europa landing fuel ✓"
+            spec.europaLandingReady -> "orbit fuel ✓ · not enough to land on Europa"
+            else -> "orbit fuel ✓ · Europa needs a lander + rad-hard electronics"
+        }
         return when {
             !(spare || fuel >= RocketSpec.MARS_CAPTURE_FUEL_FRAC * last) -> "⚠ not enough fuel for Mars capture"
             spec.marsEntryReady && (spare || fuel >= spec.marsLandingFuelFrac * last) -> "landing fuel ✓"
@@ -475,9 +537,32 @@ class GameEngine(private val store: SaveStore) {
         }
     }
 
+    private fun arriveAtJupiter(f: FlightState) {
+        jupiterReached = true
+        marsReached = true
+        val a = Arrival.evaluate(spec, MissionTarget.JUPITER, f.stage, f.remainingFuel())
+        europaLanded = a.landed
+        jupiterOrbit = a.orbit
+        if (jupiterOrbit) unlock(Achievement.JUPITER_ORBIT)
+        if (europaLanded) unlock(Achievement.EUROPA_LANDING)
+        ending = true; endTimer = 4.5f
+        val pct = (spec.europaLandingFuelFrac * 100).toInt()
+        val fuelOk = f.stage < spec.stages.size - 1 || f.remainingFuel() >= RocketSpec.JUPITER_CAPTURE_FUEL_FRAC * spec.stages.last().fuelMass
+        endReason = when {
+            europaLanded -> "Landed on Europa!"
+            jupiterOrbit && !spec.europaLandingReady -> "Captured into Jupiter orbit — research the Europa Lander and Radiation-Hardened Electronics to land on Europa"
+            jupiterOrbit -> "Captured into Jupiter orbit — arrive with $pct% fuel or a spare stage to land on Europa"
+            fuelOk && !spec.jupiterRadiationReady -> "Jupiter flyby — the radiation belts fried the electronics; research the Titanium Radiation Vault"
+            !Autopilot.canNavCut(spec, MissionTarget.JUPITER) -> "Jupiter flyby — the autopilot burned every drop; research Juno-Class Solar Arrays to power the nav computer past Mars"
+            else -> "Jupiter flyby — no fuel left for orbit insertion (needs 5% or a spare stage)"
+        }
+        showBanner(when { europaLanded -> "🧊 TOUCHDOWN ON EUROPA!"; jupiterOrbit -> "🪐 JUPITER ORBIT INSERTION"; else -> "🪐 Jupiter flyby" }, urgent = true)
+        sfx(Sfx.WIN)
+    }
+
     private fun arriveAtMars(f: FlightState) {
         marsReached = true
-        val a = MarsArrival.evaluate(spec, f.stage, f.remainingFuel())
+        val a = Arrival.evaluate(spec, MissionTarget.MARS, f.stage, f.remainingFuel())
         marsLanded = a.landed
         marsOrbit = a.orbit
         if (marsOrbit) unlock(Achievement.MARS_ORBIT)
@@ -491,7 +576,7 @@ class GameEngine(private val store: SaveStore) {
             !spec.navAutoCut -> "Mars flyby — the autopilot burned every drop; research Deep-Space Navigation to save capture fuel"
             else -> "Mars flyby — no fuel left for the capture burn (needs 3% or a spare stage)"
         }
-        showBanner(when { marsLanded -> "🔴 TOUCHDOWN ON MARS!"; marsOrbit -> "🔴 MARS ORBIT INSERTION"; else -> "🔴 Mars flyby" })
+        showBanner(when { marsLanded -> "🔴 TOUCHDOWN ON MARS!"; marsOrbit -> "🔴 MARS ORBIT INSERTION"; else -> "🔴 Mars flyby" }, urgent = true)
         sfx(Sfx.WIN)
     }
 
@@ -510,6 +595,7 @@ class GameEngine(private val store: SaveStore) {
             f.maxAlt, f.topSpeed, f.time, st.performancePay, st.milestones, st.total, newBalance,
             records, newAch.toList(), endReason.ifEmpty { "Flight over" }, moonPassed, hits,
             marsReached, marsOrbit, marsLanded,
+            target, jupiterReached, jupiterOrbit, europaLanded,
         )
         commit(
             s0.copy(
@@ -522,6 +608,8 @@ class GameEngine(private val store: SaveStore) {
                 totalEarned = s0.totalEarned + st.total,
                 marsOrbits = s0.marsOrbits + (if (marsOrbit) 1 else 0),
                 marsLandings = s0.marsLandings + (if (marsLanded) 1 else 0),
+                jupiterOrbits = s0.jupiterOrbits + (if (jupiterOrbit) 1 else 0),
+                europaLandings = s0.europaLandings + (if (europaLanded) 1 else 0),
                 interestCarry = st.interestCarry,
             )
         )
@@ -551,20 +639,22 @@ class GameEngine(private val store: SaveStore) {
             zone = zoneName(f?.alt ?: 0.0),
             warp = warp.toFloat(),
             throttle = (f?.throttle ?: 0.0).toFloat(),
-            missionProgress = if (f == null) 0f else missionFraction(f.alt),
+            missionProgress = if (f == null) 0f else missionFraction(f.alt, target),
+            target = target,
             banner = bannerText,
             bannerId = bannerId,
             hits = hits,
             ending = ending,
             mach = if (f == null) 0f else (abs(f.vy) / Physics.speedOfSound(f.alt)).toFloat(),
             results = results,
-            marsBound = inFlight && f.alt > 160_000 && Physics.bound(f.alt, f.vy, Physics.MARS_ARRIVAL_ALT),
-            arrivalNote = if (inFlight && f.alt > 160_000 && Physics.bound(f.alt, f.vy, Physics.MARS_ARRIVAL_ALT)) arrivalStatus(f) else "",
+            bound = inFlight && f.alt > 160_000 && Physics.bound(f.alt, f.vy, target.arrivalAlt),
+            arrivalNote = if (inFlight && f.alt > 160_000 && Physics.bound(f.alt, f.vy, target.arrivalAlt)) arrivalStatus(f) else "",
             radar = if (inFlight && spec.hazardRadar) world.incoming() else emptyList(),
             autoThrottling = inFlight && spec.autoThrottle && f.heat > 0.7 && autoThrottle > 0.0,
-            navCut = inFlight && Autopilot.navCut(spec, f.alt, f.vy),
+            navCut = inFlight && Autopilot.navCut(spec, f.alt, f.vy, target),
             evading = inFlight && abs(autoSteer) >= 0.99f,
             moonPassed = inFlight && moonPassed,
+            soundOn = _save.value.soundOn,
         )
     }
 }
@@ -572,9 +662,9 @@ class GameEngine(private val store: SaveStore) {
 /** Hazard layout seed for a given flight number (deterministic, so outcomes depend only on upgrades). */
 fun hazardSeed(flightIndex: Int): Int = 0x5EED + 7919 * flightIndex
 
-/** Log-scale fraction of the one mission path (0 at the pad, 1 at Mars). */
-fun missionFraction(alt: Double): Float =
-    (ln(1.0 + alt / 1000.0) / ln(1.0 + Physics.MARS_ARRIVAL_ALT / 1000.0)).toFloat().coerceIn(0f, 1f)
+/** Log-scale fraction of the one mission path (0 at the pad, 1 at the target: Mars, or Jupiter later). */
+fun missionFraction(alt: Double, target: MissionTarget = MissionTarget.MARS): Float =
+    (ln(1.0 + alt / 1000.0) / ln(1.0 + target.arrivalAlt / 1000.0)).toFloat().coerceIn(0f, 1f)
 
 fun formatAlt(m: Double): String = when {
     m < 1_000 -> "${m.toInt()} m"

@@ -2,8 +2,10 @@ package com.brandonwallace.rocketlauncher.game
 
 /** Internal stat lines that the physics tables are indexed by. Tech nodes add levels to these. */
 enum class Stat(val max: Int) {
-    ENGINE(8), FUEL(8), AERO(6), HULL(6), STAGES(4), BOOSTERS(4), HEAT(4), FINS(5),
-    AVIONICS(4), VACUUM(3), REGEN(1), SEP(1), NUCLEAR(2), EDL(2),
+    ENGINE(10), FUEL(11), AERO(7), HULL(8), STAGES(5), BOOSTERS(5), HEAT(4), FINS(7),
+    AVIONICS(6), VACUUM(4), REGEN(1), SEP(2), NUCLEAR(4), EDL(2),
+    // 1.2 (Jupiter program and friends)
+    GIMBAL(2), POWER(2), RADIATION(2), LANDER(2),
 }
 
 enum class Branch(val title: String, val color: Long, val icon: String) {
@@ -20,7 +22,7 @@ class TechNode(
     val branch: Branch,
     val title: String,
     val desc: String,
-    /** Column in the graph (0..8) — also drives cost. */
+    /** Column in the graph (0..11) — also drives cost. */
     val tier: Int,
     /** Row in the graph. */
     val row: Int,
@@ -31,6 +33,8 @@ class TechNode(
     costFactor: Double = 1.0,
 ) {
     val cost: Long = Math.round(TechTree.TIER_COST[tier] * costFactor / 5.0) * 5
+    /** Tiers 10–12: the Jupiter program, which opens after the first Mars landing. */
+    val jupiterProgram: Boolean get() = tier >= TechTree.JUPITER_TIER
 }
 
 /**
@@ -40,9 +44,12 @@ class TechNode(
 object TechTree {
     /**
      * Base price per tier (column). Tiers 1–6 are tuned so the Moon takes 25–35 flights; tiers 7–9 are the
-     * Mars program (see EconomyTest / SmokeTest for the campaign simulations).
+     * Mars program, tiers 10–12 the Jupiter program (see EconomyTest / SmokeTest for the campaign simulations).
      */
-    val TIER_COST = doubleArrayOf(42.5, 127.5, 340.0, 977.5, 2465.0, 4760.0, 16000.0, 32000.0, 52000.0)
+    val TIER_COST = doubleArrayOf(42.5, 127.5, 340.0, 977.5, 2465.0, 4760.0, 16000.0, 32000.0, 52000.0, 55000.0, 70000.0, 90000.0)
+
+    /** First column (0-based) of the Jupiter program. */
+    const val JUPITER_TIER = 9
 
     private fun n(
         id: String, b: Branch, title: String, desc: String, tier: Int, row: Int, pre: List<String>,
@@ -60,6 +67,8 @@ object TechTree {
         n("TH_REGEN", Branch.THERMAL, "Regenerative Cooling", "Fuel-cooled chambers: +8 s Isp on every engine.", 3, 1, listOf("P_TURBO", "TH_CORK"), mapOf(Stat.REGEN to 1), "Cooling-tube ribs on bells", 0.8),
         n("P_VAC", Branch.PROPULSION, "Vacuum-Optimized Nozzles", "Upper stages get big expansion bells (+14 s Isp).", 4, 1, listOf("P_GG", "ST_2"), mapOf(Stat.VACUUM to 1), "Huge upper-stage bell", 1.3),
         n("P_VAC2", Branch.PROPULSION, "Niobium Nozzle Extensions", "Radiatively cooled extensions (+14 s Isp).", 5, 1, listOf("P_VAC"), mapOf(Stat.VACUUM to 1), "Dark nozzle extension", 0.8),
+        n("P_GIMBAL", Branch.PROPULSION, "Gimballed Nozzle", "The nozzle swivels: the autopilot steers around hazards faster.", 1, 1, listOf("P_GRAIN"), mapOf(Stat.GIMBAL to 1), "Gimbal actuators on the engine", 0.5),
+        n("P_TVC", Branch.PROPULSION, "Electric Thrust-Vector Control", "Electric actuators swing every engine: even quicker dodges.", 2, 1, listOf("P_GIMBAL", "P_LIQUID"), mapOf(Stat.GIMBAL to 1), "Red actuator struts on every engine", 0.5),
         n("B_SRB", Branch.PROPULSION, "Strap-on Solid Boosters", "Two small boosters for liftoff.", 2, 2, listOf("P_GRAIN", "S_ALU"), mapOf(Stat.BOOSTERS to 1), "2 side boosters", 1.5),
         n("B_LARGE", Branch.PROPULSION, "Segmented Boosters", "Two big segmented boosters.", 3, 2, listOf("B_SRB", "S_STRETCH"), mapOf(Stat.BOOSTERS to 1), "Bigger segmented boosters", 1.3),
         n("B_QUAD", Branch.PROPULSION, "Quad Booster Cluster", "Four big boosters.", 5, 2, listOf("B_LARGE", "P_STAGED"), mapOf(Stat.BOOSTERS to 1), "4 side boosters", 0.9),
@@ -112,6 +121,32 @@ object TechTree {
         n("TH_PICA", Branch.THERMAL, "PICA-X Aeroshell", "Mars-rated heat shield for atmospheric entry.", 6, 10, listOf("TH_TILE"), mapOf(Stat.HEAT to 1), "Grey PICA-X nose shield", 1.0),
         n("EDL_CHUTE", Branch.THERMAL, "Supersonic Parachute", "Mars landing: parachute + aeroshell. Needs 8% landing fuel.", 7, 11, listOf("TH_PICA", "AV_DSN"), mapOf(Stat.EDL to 1), "Orange parachute canister", 1.0),
         n("EDL_SRP", Branch.THERMAL, "Supersonic Retropropulsion", "Engine-braked descent on landing legs: only 4% landing fuel.", 8, 11, listOf("EDL_CHUTE", "P_RAPTOR2"), mapOf(Stat.EDL to 1), "Landing legs", 0.7),
+        n("ST_HOT", Branch.STAGING, "Hot Staging", "Upper stage lights before separation: almost no gap in thrust.", 8, 6, listOf("ST_PYRO", "ST_5"), mapOf(Stat.SEP to 1), "Vented hot-staging rings", 0.3),
+        n("A_SPIKE", Branch.AERO, "Aerodisk Nose Spike", "A spike pushes the shock wave forward: the lowest drag of all.", 7, 8, listOf("A_WAVE"), mapOf(Stat.AERO to 1), "Needle spike on the nose", 0.4),
+        n("AV_SOLAR", Branch.AVIONICS, "Juno-Class Solar Arrays", "Huge solar wings power the nav computer past Mars (needed to save fuel on Jupiter flights).", 8, 9, listOf("AV_DSN"), mapOf(Stat.POWER to 1), "Three solar wings that unfold in space", 0.5),
+
+        // ================= Jupiter program (tiers 10–12) =================
+        n("P_RAPTOR3", Branch.PROPULSION, "Methalox Mk III Cluster", "Twenty uprated methalox engines.", 9, 0, listOf("P_RAPTOR2"), mapOf(Stat.ENGINE to 1), "Twenty-engine cluster, bluer flame"),
+        n("P_VAC4", Branch.PROPULSION, "Carbon-Carbon Nozzle Skirts", "Extendable carbon-carbon skirts (+14 s Isp).", 9, 1, listOf("P_NTR2"), mapOf(Stat.VACUUM to 1), "Long black nozzle skirt", 0.7),
+        n("B_QUADHEAVY", Branch.PROPULSION, "Four Heavy Side Cores", "Four full liquid side cores around the core stage.", 9, 2, listOf("B_HEAVY", "P_RAPTOR2"), mapOf(Stat.BOOSTERS to 1), "Four liquid side cores"),
+        n("S_ZBO", Branch.STRUCTURES, "Zero-Boil-Off Tanks", "Cryocoolers keep propellant cold for years: much bigger tanks.", 9, 3, listOf("S_REFUEL"), mapOf(Stat.FUEL to 1), "Longer stages + white cryocooler radiators"),
+        n("S_WHIPPLE", Branch.STRUCTURES, "Whipple Shield", "Stand-off bumper panels shatter micrometeoroids: survive the asteroid belt.", 9, 4, listOf("S_TITAN"), mapOf(Stat.HULL to 1), "Quilted white bumper panels", 0.6),
+        n("ST_6", Branch.STAGING, "Jupiter Injection Stage", "A sixth stage for the long burn out to Jupiter.", 9, 5, listOf("ST_5", "S_REFUEL"), mapOf(Stat.STAGES to 1), "Sixth stage"),
+        n("A_RCS", Branch.AERO, "Cold-Gas RCS Thrusters", "Attitude thrusters: the autopilot dodges asteroids even in vacuum.", 9, 7, listOf("A_STRAKE"), mapOf(Stat.FINS to 1), "RCS thruster quads", 0.4),
+        n("AV_AI", Branch.AVIONICS, "Autonomous AI Navigator", "Onboard AI sees hazards much further ahead and steers sooner.", 9, 9, listOf("AV_SOLAR"), mapOf(Stat.AVIONICS to 1), "Glowing blue sensor dome", 0.5),
+        n("TH_VAULT", Branch.THERMAL, "Titanium Radiation Vault", "Shields the electronics from Jupiter's radiation belts: needed for Jupiter orbit.", 9, 10, listOf("TH_PICA", "S_TITAN"), mapOf(Stat.RADIATION to 1), "Gold foil wrap + titanium vault", 0.8),
+        n("P_PLASMA", Branch.PROPULSION, "Fusion Plasma Drive", "Magnetic-nozzle plasma engines on the upper stages (huge Isp).", 10, 1, listOf("P_VAC4"), mapOf(Stat.NUCLEAR to 1), "Copper magnet coils, violet plasma exhaust"),
+        n("S_DEPOT", Branch.STRUCTURES, "Orbital Propellant Depot", "Fill up at a depot in orbit before heading out.", 10, 3, listOf("S_ZBO"), mapOf(Stat.FUEL to 1), "Even longer stages"),
+        n("A_ION", Branch.AERO, "Ion Attitude Thrusters", "Tireless ion thrusters: the sharpest dodges yet.", 10, 7, listOf("A_RCS"), mapOf(Stat.FINS to 1), "Blue glowing ion thrusters", 0.4),
+        n("AV_RTG", Branch.AVIONICS, "Radioisotope Generators", "Nuclear batteries power a longer-range hazard radar far from the Sun.", 10, 9, listOf("AV_AI"), mapOf(Stat.POWER to 1), "Two finned RTGs on booms", 0.5),
+        n("TH_RADHARD", Branch.THERMAL, "Radiation-Hardened Electronics", "Electronics that survive Europa's radiation: needed to land there.", 10, 10, listOf("TH_VAULT"), mapOf(Stat.RADIATION to 1), "Dark shielding plates", 0.7),
+        n("EDL_EUROPA", Branch.THERMAL, "Europa Lander", "An icy-moon lander: lands on Europa with 8% landing fuel.", 10, 11, listOf("EDL_SRP", "TH_VAULT"), mapOf(Stat.LANDER to 1), "Gold lander with folded legs"),
+        n("P_SUPER33", Branch.PROPULSION, "33-Engine Super Booster", "Thirty-three engines on the biggest first stage ever.", 11, 0, listOf("P_RAPTOR3", "B_QUADHEAVY"), mapOf(Stat.ENGINE to 1), "Thirty-three-engine cluster"),
+        n("P_PLASMA2", Branch.PROPULSION, "Fusion Torch", "Hotter fusion plasma (even more Isp).", 11, 1, listOf("P_PLASMA"), mapOf(Stat.NUCLEAR to 1), "Extra coils, white-violet plasma", 0.8),
+        n("S_SLUSH", Branch.STRUCTURES, "Slush-Densified Propellant", "Super-chilled slush packs more propellant into every tank.", 11, 3, listOf("S_DEPOT"), mapOf(Stat.FUEL to 1), "Frosted, longest stages", 0.8),
+        n("S_GRAPHENE", Branch.STRUCTURES, "Graphene Composite Frame", "The strongest, lightest structure: survives almost anything.", 11, 4, listOf("S_WHIPPLE"), mapOf(Stat.HULL to 1), "Graphite skin with glowing blue bands", 0.6),
+        n("AV_LASER", Branch.AVIONICS, "Laser Deep-Space Comms", "Laser links to Earth: the AI navigator reacts even earlier.", 11, 9, listOf("AV_RTG"), mapOf(Stat.AVIONICS to 1), "Laser terminal with a green beam lens", 0.5),
+        n("EDL_SKYCRANE", Branch.THERMAL, "Sky-Crane Descent", "A rocket crane lowers the lander gently: only 4% landing fuel.", 11, 11, listOf("EDL_EUROPA"), mapOf(Stat.LANDER to 1), "Red sky-crane frame with four thrusters", 0.8),
     )
 
     val byId: Map<String, TechNode> = nodes.associateBy { it.id }
@@ -131,4 +166,12 @@ object TechTree {
     fun isAvailable(owned: Set<String>, node: TechNode) = node.id !in owned && node.prereqs.all { it in owned }
 
     fun available(owned: Set<String>): List<TechNode> = nodes.filter { isAvailable(owned, it) }
+
+    /** The Jupiter program opens once the rocket has landed on Mars. */
+    fun programOpen(s: SaveData, node: TechNode): Boolean = !node.jupiterProgram || s.marsLandings > 0
+
+    /** Researchable now (prerequisites owned and program open), ignoring price. */
+    fun isAvailable(s: SaveData, node: TechNode) = isAvailable(s.tech, node) && programOpen(s, node)
+
+    fun available(s: SaveData): List<TechNode> = nodes.filter { isAvailable(s, it) }
 }

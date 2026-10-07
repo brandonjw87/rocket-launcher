@@ -9,27 +9,35 @@ import kotlin.math.abs
  *
  *  - Throttle: full burn from liftoff (stages and boosters separate automatically as they run dry).
  *    The Digital Flight Computer (avionics 3) eases off through peak heating (see [FlightState.step]).
- *    Deep-Space Navigation (avionics 4) cuts the engines as soon as the coast alone reaches Mars, keeping the
- *    remaining fuel for the Mars capture and landing burns. Without it the autopilot burns every drop.
+ *    Deep-Space Navigation (avionics 4) cuts the engines as soon as the coast alone reaches the target, keeping
+ *    the remaining fuel for the capture and landing burns. Without it the autopilot burns every drop. Past Mars
+ *    (Jupiter flights) the nav computer also needs deep-space power (Juno-class solar arrays).
  *  - Hazards: the autopilot steers around obstacles it can see. How far ahead it sees depends on avionics
  *    (radio guidance adds the hazard radar), how hard it can turn depends on fins + avionics
  *    ([RocketSpec.maxTiltRad], [RocketSpec.steerResponse]); the hull upgrades decide how many hits it survives.
  */
 object Autopilot {
-    /** Engines cut once the coast reaches Mars (needs Deep-Space Navigation). */
-    fun navCut(spec: RocketSpec, alt: Double, vy: Double): Boolean =
-        spec.navAutoCut && alt > 160_000 && Physics.bound(alt, vy, Physics.MARS_ARRIVAL_ALT)
+    /** The nav computer can steer this flight's coast (Deep-Space Navigation; Jupiter also needs deep-space power). */
+    fun canNavCut(spec: RocketSpec, target: MissionTarget): Boolean =
+        spec.navAutoCut && (target == MissionTarget.MARS || spec.deepSpacePower)
+
+    /** Engines cut once the coast reaches the target. */
+    fun navCut(spec: RocketSpec, alt: Double, vy: Double, target: MissionTarget = MissionTarget.MARS): Boolean =
+        canNavCut(spec, target) && alt > 160_000 && Physics.bound(alt, vy, target.arrivalAlt)
 
     /** Throttle command 0..1 for this step. */
-    fun throttle(spec: RocketSpec, f: FlightState): Double = if (navCut(spec, f.alt, f.vy)) 0.0 else 1.0
+    fun throttle(spec: RocketSpec, f: FlightState, target: MissionTarget = MissionTarget.MARS): Double =
+        if (navCut(spec, f.alt, f.vy, target)) 0.0 else 1.0
 
-    /** How far ahead (visual metres) the autopilot reacts to hazards: eyeballing → radar → inertial/computer. */
+    /** How far ahead (visual metres) the autopilot reacts to hazards: eyeballing → radar → inertial/computer → AI. */
     fun lookahead(spec: RocketSpec): Float = when (spec.level(Stat.AVIONICS)) {
         0 -> 12f
         1 -> 38f
         2 -> 52f
-        else -> 64f
-    }
+        3, 4 -> 64f
+        5 -> 76f
+        else -> 88f
+    } + 6f * spec.level(Stat.POWER)
 
     /** Steering command in [-1, 1] (fraction of the rocket's max tilt) to avoid the nearest threatening hazard. */
     fun steer(spec: RocketSpec, entities: List<Entity>, laneX: Float): Float {
@@ -49,15 +57,29 @@ object Autopilot {
     }
 }
 
-/** Outcome at Mars: shared by the live engine and the offline simulation so they always agree. */
-class MarsArrival(val orbit: Boolean, val landed: Boolean) {
+/**
+ * Outcome at the target: shared by the live engine and the offline simulation so they always agree.
+ *  - Mars: capture needs 3% of the last stage (or a spare stage); landing needs PICA-X + parachute + landing fuel.
+ *  - Jupiter: capture needs 5% (or a spare stage) and a radiation vault; a Europa landing also needs the
+ *    Europa lander, radiation-hardened electronics and landing fuel.
+ */
+class Arrival(val orbit: Boolean, val landed: Boolean) {
     companion object {
-        fun evaluate(spec: RocketSpec, stage: Int, remainingFuel: Double): MarsArrival {
+        fun evaluate(spec: RocketSpec, target: MissionTarget, stage: Int, remainingFuel: Double): Arrival {
             val last = spec.stages.last().fuelMass
             val spare = stage < spec.stages.size - 1
-            val capture = spare || remainingFuel >= RocketSpec.MARS_CAPTURE_FUEL_FRAC * last
-            val landFuel = spare || remainingFuel >= spec.marsLandingFuelFrac * last
-            return MarsArrival(capture, capture && landFuel && spec.marsEntryReady)
+            return when (target) {
+                MissionTarget.MARS -> {
+                    val capture = spare || remainingFuel >= RocketSpec.MARS_CAPTURE_FUEL_FRAC * last
+                    val landFuel = spare || remainingFuel >= spec.marsLandingFuelFrac * last
+                    Arrival(capture, capture && landFuel && spec.marsEntryReady)
+                }
+                MissionTarget.JUPITER -> {
+                    val capture = spec.jupiterRadiationReady && (spare || remainingFuel >= RocketSpec.JUPITER_CAPTURE_FUEL_FRAC * last)
+                    val landFuel = spare || remainingFuel >= spec.europaLandingFuelFrac * last
+                    Arrival(capture, capture && landFuel && spec.europaLandingReady)
+                }
+            }
         }
     }
 }

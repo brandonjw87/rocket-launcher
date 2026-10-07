@@ -4,6 +4,7 @@ import com.brandonwallace.rocketlauncher.audio.SoundEngine
 import com.brandonwallace.rocketlauncher.game.Economy
 import com.brandonwallace.rocketlauncher.game.Milestone
 import com.brandonwallace.rocketlauncher.game.Mission
+import com.brandonwallace.rocketlauncher.game.MissionTarget
 import com.brandonwallace.rocketlauncher.game.Physics
 import com.brandonwallace.rocketlauncher.game.GameEngine
 import com.brandonwallace.rocketlauncher.game.Phase
@@ -90,7 +91,7 @@ class SmokeTest {
             if (r.moonPassed) break
             // research: cheapest affordable available node first (renderer rebuilds the rocket each time)
             while (true) {
-                val n = TechTree.available(e.save.value.tech).filter { it.cost <= e.save.value.money }.minByOrNull { it.cost } ?: break
+                val n = TechTree.available(e.save.value).filter { it.cost <= e.save.value.money }.minByOrNull { it.cost } ?: break
                 assertTrue(e.research(n.id))
                 h.frame(true)
             }
@@ -110,8 +111,10 @@ class SmokeTest {
         val h = Harness()
         val e = h.engine
         e.grantMoney(TechTree.totalCost + 10)
-        while (true) { val n = TechTree.available(e.save.value.tech).firstOrNull() ?: break; assertTrue(n.id, e.research(n.id)) }
-        assertEquals(TechTree.nodes.size, e.save.value.tech.size)
+        while (true) { val n = TechTree.available(e.save.value).firstOrNull() ?: break; assertTrue(n.id, e.research(n.id)) }
+        // no Mars landing yet: everything but the Jupiter program
+        assertEquals(TechTree.nodes.count { !it.jupiterProgram }, e.save.value.tech.size)
+        assertFalse(e.research("P_RAPTOR3"))
         for (q in listOf(0, 2, 1)) { e.setQuality(q); h.frame(true) }
         e.openHangar(); h.frame(true); e.launch()
         var frames = 0
@@ -135,7 +138,7 @@ class SmokeTest {
         // a 1.0-format (schema 2) late-game save, like the emulator test save: migrates and flies the one mission
         val start = SaveData(money = 0, tech = all, moonLandings = 1,
             milestones = Milestone.entries.filter { it.altitude <= Physics.MOON_ARRIVAL_ALT }.toSet())
-        val legacy = start.serialize().replace("v=3;", "v=2;") + ";dest=MARS;tilt=false"
+        val legacy = start.serialize().replace("v=4;", "v=2;") + ";dest=MARS;tilt=false"
         val h = Harness(legacy)
         val e = h.engine
         assertEquals(start, e.save.value)
@@ -165,7 +168,8 @@ class SmokeTest {
         assertTrue("no single frame jumps more than 3% of the way", maxFrameAltJump < 0.03)
         assertEquals(1, e.save.value.marsLandings)
         assertTrue(Milestone.MARS in e.save.value.milestones)
-        assertEquals(Mission.entries.size, Mission.doneCount(e.save.value))
+        assertEquals(Mission.MARS_LANDING.ordinal + 1, Mission.doneCount(e.save.value))
+        assertEquals(Mission.JUPITER_TRANSFER, Mission.next(e.save.value))
         // money only from height/distance: the payout is exactly altitude pay + new milestones (+ hidden interest on $0 = 0)
         val st = Economy.settle(0, r.maxAlt, start.milestones)
         assertEquals(st.total, r.total)
@@ -174,7 +178,7 @@ class SmokeTest {
     @Test fun singleMissionNoDestinationChoice() {
         // a 1.0 save that had picked the Moon still flies the one Moon->Mars mission: no picker, no Moon stop
         val all = TechTree.nodes.map { it.id }.toSet()
-        val h = Harness(SaveData(tech = all).serialize().replace("v=3;", "v=2;") + ";dest=MOON;tilt=true")
+        val h = Harness(SaveData(tech = all).serialize().replace("v=4;", "v=2;") + ";dest=MOON;tilt=true")
         val e = h.engine
         assertTrue(e.save.value.extras.isEmpty())
         val engineApi = GameEngine::class.java.methods.map { it.name }
@@ -323,7 +327,7 @@ class SmokeTest {
         assertTrue(fly(h, false))
         val r = h.engine.hud.value.results!!
         assertEquals(r.total, r.performancePay + r.milestones.sumOf { it.bonus })
-        assertEquals(Economy.altitudePay(r.maxAlt) + 67, r.performancePay)   // 1000 unspent -> 67.69 -> $67 inside "Flight performance"
+        assertEquals(Economy.altitudePay(r.maxAlt) + 167, r.performancePay)   // 1000 unspent -> 167.69 -> $167 inside "Flight performance"
     }
 
     @Test fun moneyUnlocksAndInterestCarrySurviveReloadAndBackground() {
@@ -340,7 +344,7 @@ class SmokeTest {
         assertEquals(e.save.value.money, reloaded.save.value.money)
         assertTrue(reloaded.save.value.has("P_GRAIN"))
         assertEquals(BigDecimal("0.69").setScale(5), reloaded.save.value.interestCarry)
-        assertTrue(h.store.data!!.startsWith("v=3;"))
+        assertTrue(h.store.data!!.startsWith("v=4;"))
         // nothing changed -> no extra write; an empty/unreadable store is never overwritten by an untouched default save
         val writes = h.store.syncWrites
         reloaded.persistNow(); assertEquals(writes, h.store.syncWrites)
@@ -349,6 +353,78 @@ class SmokeTest {
         // a 1.0 save is rewritten in the new schema by persistNow (what MainActivity does after migrating)
         val legacy = Harness("v=2;money=42;dest=MOON;tilt=true;tech=P_GRAIN")
         legacy.engine.persistNow()
-        assertEquals(1, legacy.store.syncWrites); assertTrue(legacy.store.data!!.startsWith("v=3;money=42;"))
+        assertEquals(1, legacy.store.syncWrites); assertTrue(legacy.store.data!!.startsWith("v=4;money=42;"))
+    }
+
+    // ---------------- new in 1.2
+
+    @Test fun maxedRocketFliesPastMarsAndLandsOnEuropa() {
+        val all = TechTree.nodes.map { it.id }.toSet()
+        // a 1.1-format (schema 3) endgame save that has landed on Mars: the next flight goes on to Jupiter
+        val start = SaveData(money = 0, tech = all, moonLandings = 1, marsOrbits = 1, marsLandings = 1,
+            milestones = Milestone.entries.filter { it.altitude <= Physics.MARS_ARRIVAL_ALT }.toSet())
+        val v11 = start.serialize().replace("v=4;", "v=3;").replace(";jupOrbit=0;europa=0", "")
+        val h = Harness(v11)
+        val e = h.engine
+        assertEquals(start, e.save.value)
+        e.openHangar(); h.frame(true); e.launch()
+        assertEquals(MissionTarget.JUPITER, e.target)
+        var frames = 0
+        var maxFrameAltJump = 0.0
+        var lastAlt = 0.0
+        val banners = ArrayList<String>()
+        var lastBanner = ""
+        var navCutSeen = false
+        var slowestNearMars = Double.MAX_VALUE
+        while (e.phase != Phase.RESULTS && frames < 150_000) {
+            h.frame(true); frames++
+            if (e.hud.value.navCut) navCutSeen = true
+            val hb = e.hud.value.banner
+            if (hb != lastBanner) { banners += hb; lastBanner = hb }
+            val a = e.flight?.alt ?: 0.0
+            if (a > 1e9) maxFrameAltJump = maxOf(maxFrameAltJump, (a - lastAlt) / Physics.JUPITER_ARRIVAL_ALT)
+            if (kotlin.math.abs(a - Physics.MARS_ARRIVAL_ALT) < 2e8) slowestNearMars = minOf(slowestNearMars, e.warp)
+            lastAlt = a
+        }
+        val r = e.hud.value.results!!
+        println("Jupiter flight: frames=$frames (~${frames / 60}s) reason=${r.reason} orbit=${r.jupiterOrbit} europa=${r.europaLanded} pay=${r.total} hits=${r.hits} maxStep=${"%.4f".format(maxFrameAltJump)} warpNearMars=$slowestNearMars")
+        println("Jupiter banners: " + banners.joinToString(" | "))
+        assertEquals(MissionTarget.JUPITER, r.target)
+        assertTrue("flew past Mars: ${r.reason}", r.marsReached && !r.marsLanded)
+        assertTrue("reached Jupiter: ${r.reason}", r.jupiterReached)
+        assertTrue("landed on Europa: ${r.reason}", r.europaLanded && r.jupiterOrbit)
+        assertTrue("nav computer cut the engines", navCutSeen)
+        assertTrue("Mars flyby is slowed down to be visible ($slowestNearMars)", slowestNearMars < 50_000)
+        for (b in listOf("MARS FLYBY", "ENTERING THE ASTEROID BELT", "Asteroid Belt  +", "Rock Hopper", "Jupiter Arrival  +", "TOUCHDOWN ON EUROPA"))
+            assertTrue("banner '$b' shown", banners.any { it.contains(b) })
+        assertTrue("Jupiter trip should take 40 s .. 4.5 min of real time, took ${frames / 60}s", frames in 2_400..16_200)
+        assertTrue("no single frame jumps more than 3% of the way", maxFrameAltJump < 0.03)
+        val s = e.save.value
+        assertEquals(1, s.jupiterOrbits); assertEquals(1, s.europaLandings); assertEquals(1, s.marsLandings)
+        assertTrue(Milestone.JUPITER in s.milestones && Milestone.ASTEROID_BELT in s.milestones)
+        assertEquals(Mission.entries.size, Mission.doneCount(s))
+        val st = Economy.settle(0, r.maxAlt, start.milestones)
+        assertEquals(st.total, r.total)
+        // reload keeps it all
+        assertEquals(s, GameEngine(h.store).save.value)
+    }
+
+    @Test fun muteButtonTogglesAndPersists() {
+        val h = Harness(SaveData(money = 10).serialize())
+        val e = h.engine
+        assertTrue(e.save.value.soundOn)
+        val heard = ArrayList<com.brandonwallace.rocketlauncher.game.Sfx>()
+        e.sfxListener = { heard += it }
+        e.toggleSound()
+        assertFalse(e.save.value.soundOn)
+        assertFalse(e.hud.value.soundOn)
+        assertTrue(h.store.data!!.contains(";sound=false;"))
+        e.openHangar()
+        assertTrue("muted: no click", heard.isEmpty())
+        e.launch(); repeat(600) { h.frame(true) }
+        assertTrue("muted: no countdown beeps or liftoff", heard.isEmpty())
+        e.toggleSound()
+        assertTrue(e.save.value.soundOn && e.hud.value.soundOn)
+        assertTrue(GameEngine(h.store).save.value.soundOn)
     }
 }
