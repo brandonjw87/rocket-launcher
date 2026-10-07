@@ -14,6 +14,8 @@ enum class EntityKind(val radius: Float, val damage: Double) {
     METEOR(2.2f, 48.0),
     /** 1.2: the asteroid belt on the way to Jupiter. */
     ASTEROID(2.6f, 45.0),
+    /** 1.3: icy centaurs past Jupiter and ring ice around Saturn (ring shields soften the hits). */
+    ICE(2.3f, 150.0),
 }
 
 class Entity(val kind: EntityKind, var x: Float, var y: Float, var z: Float, var vx: Float, var vy: Float, val seed: Float) {
@@ -69,6 +71,8 @@ class World(seed: Int = 1) {
             alt < 100_000 -> listOf(EntityKind.METEOR to 1f)
             alt < 2_000_000 -> listOf(EntityKind.SATELLITE to 1.6f, EntityKind.DEBRIS to 2.2f)
             alt >= Physics.ASTEROID_BELT_START && alt <= Physics.ASTEROID_BELT_END -> listOf(EntityKind.ASTEROID to 2.4f, EntityKind.METEOR to 0.4f)
+            alt >= Physics.RING_ZONE_START -> listOf(EntityKind.ICE to 1f)
+            alt >= Physics.CENTAUR_ZONE_START && alt <= Physics.CENTAUR_ZONE_END -> listOf(EntityKind.ICE to 1.2f, EntityKind.METEOR to 0.8f)
             else -> listOf(EntityKind.DEBRIS to 0.8f, EntityKind.METEOR to 1.6f)
         }
 
@@ -78,6 +82,7 @@ class World(seed: Int = 1) {
             alt < 12_000 -> 0.55f
             alt < 100_000 -> 0.5f
             alt >= Physics.ASTEROID_BELT_START && alt <= Physics.ASTEROID_BELT_END -> 1.0f
+            alt >= Physics.RING_ZONE_START -> 1.6f
             else -> 0.7f
         }
     }
@@ -176,6 +181,7 @@ class World(seed: Int = 1) {
                 entities.add(Entity(kind, rocketX + side * 28f, y + 10f, 0f, -side * 13f, -22f, seed).also { it.spin = rf(-2f, 2f) })
             }
             EntityKind.ASTEROID -> entities.add(Entity(kind, x, y, rf(-4f, 4f), rf(-5f, 5f), rf(-6f, 0f), seed).also { it.spin = rf(-1.2f, 1.2f) })
+            EntityKind.ICE -> entities.add(Entity(kind, x, y, rf(-3f, 3f), rf(-7f, 7f), rf(-4f, 0f), seed).also { it.spin = rf(-1.6f, 1.6f) })
         }
     }
 }

@@ -112,8 +112,8 @@ class SmokeTest {
         val e = h.engine
         e.grantMoney(TechTree.totalCost + 10)
         while (true) { val n = TechTree.available(e.save.value).firstOrNull() ?: break; assertTrue(n.id, e.research(n.id)) }
-        // no Mars landing yet: everything but the Jupiter program
-        assertEquals(TechTree.nodes.count { !it.jupiterProgram }, e.save.value.tech.size)
+        // no Mars landing yet: everything but the Jupiter and Saturn programs
+        assertEquals(TechTree.nodes.count { it.tier < TechTree.JUPITER_TIER }, e.save.value.tech.size)
         assertFalse(e.research("P_RAPTOR3"))
         for (q in listOf(0, 2, 1)) { e.setQuality(q); h.frame(true) }
         e.openHangar(); h.frame(true); e.launch()
@@ -138,7 +138,7 @@ class SmokeTest {
         // a 1.0-format (schema 2) late-game save, like the emulator test save: migrates and flies the one mission
         val start = SaveData(money = 0, tech = all, moonLandings = 1,
             milestones = Milestone.entries.filter { it.altitude <= Physics.MOON_ARRIVAL_ALT }.toSet())
-        val legacy = start.serialize().replace("v=4;", "v=2;") + ";dest=MARS;tilt=false"
+        val legacy = start.serialize().replace("v=5;", "v=2;") + ";dest=MARS;tilt=false"
         val h = Harness(legacy)
         val e = h.engine
         assertEquals(start, e.save.value)
@@ -178,7 +178,7 @@ class SmokeTest {
     @Test fun singleMissionNoDestinationChoice() {
         // a 1.0 save that had picked the Moon still flies the one Moon->Mars mission: no picker, no Moon stop
         val all = TechTree.nodes.map { it.id }.toSet()
-        val h = Harness(SaveData(tech = all).serialize().replace("v=4;", "v=2;") + ";dest=MOON;tilt=true")
+        val h = Harness(SaveData(tech = all).serialize().replace("v=5;", "v=2;") + ";dest=MOON;tilt=true")
         val e = h.engine
         assertTrue(e.save.value.extras.isEmpty())
         val engineApi = GameEngine::class.java.methods.map { it.name }
@@ -344,7 +344,7 @@ class SmokeTest {
         assertEquals(e.save.value.money, reloaded.save.value.money)
         assertTrue(reloaded.save.value.has("P_GRAIN"))
         assertEquals(BigDecimal("0.69").setScale(5), reloaded.save.value.interestCarry)
-        assertTrue(h.store.data!!.startsWith("v=4;"))
+        assertTrue(h.store.data!!.startsWith("v=5;"))
         // nothing changed -> no extra write; an empty/unreadable store is never overwritten by an untouched default save
         val writes = h.store.syncWrites
         reloaded.persistNow(); assertEquals(writes, h.store.syncWrites)
@@ -353,17 +353,17 @@ class SmokeTest {
         // a 1.0 save is rewritten in the new schema by persistNow (what MainActivity does after migrating)
         val legacy = Harness("v=2;money=42;dest=MOON;tilt=true;tech=P_GRAIN")
         legacy.engine.persistNow()
-        assertEquals(1, legacy.store.syncWrites); assertTrue(legacy.store.data!!.startsWith("v=4;money=42;"))
+        assertEquals(1, legacy.store.syncWrites); assertTrue(legacy.store.data!!.startsWith("v=5;money=42;"))
     }
 
     // ---------------- new in 1.2
 
     @Test fun maxedRocketFliesPastMarsAndLandsOnEuropa() {
-        val all = TechTree.nodes.map { it.id }.toSet()
+        val all = TechTree.nodes.filter { it.tier < TechTree.SATURN_TIER }.map { it.id }.toSet()
         // a 1.1-format (schema 3) endgame save that has landed on Mars: the next flight goes on to Jupiter
         val start = SaveData(money = 0, tech = all, moonLandings = 1, marsOrbits = 1, marsLandings = 1,
             milestones = Milestone.entries.filter { it.altitude <= Physics.MARS_ARRIVAL_ALT }.toSet())
-        val v11 = start.serialize().replace("v=4;", "v=3;").replace(";jupOrbit=0;europa=0", "")
+        val v11 = start.serialize().replace("v=5;", "v=3;").replace(";jupOrbit=0;europa=0;rings=0;satOrbit=0;encel=0;titanProbe=0;titan=0", "")
         val h = Harness(v11)
         val e = h.engine
         assertEquals(start, e.save.value)
@@ -402,10 +402,70 @@ class SmokeTest {
         val s = e.save.value
         assertEquals(1, s.jupiterOrbits); assertEquals(1, s.europaLandings); assertEquals(1, s.marsLandings)
         assertTrue(Milestone.JUPITER in s.milestones && Milestone.ASTEROID_BELT in s.milestones)
-        assertEquals(Mission.entries.size, Mission.doneCount(s))
+        assertEquals(Mission.EUROPA_LANDING.ordinal + 1, Mission.doneCount(s))
+        // 1.3: Europa opens the Saturn chapter
+        assertEquals(Mission.JUPITER_SLINGSHOT, Mission.next(s))
+        assertEquals(MissionTarget.SATURN, MissionTarget.of(s))
         val st = Economy.settle(0, r.maxAlt, start.milestones)
         assertEquals(st.total, r.total)
         // reload keeps it all
+        assertEquals(s, GameEngine(h.store).save.value)
+    }
+
+    @Test fun maxedRocketSlingshotsPastJupiterAndFliesOnTitan() {
+        val all = TechTree.nodes.map { it.id }.toSet()
+        // a 1.2-format (schema 4) endgame save that has landed on Europa, now with the whole 1.3 tree: on to Saturn
+        val start = SaveData(money = 0, tech = all, moonLandings = 1, marsOrbits = 1, marsLandings = 1, jupiterOrbits = 1, europaLandings = 1,
+            milestones = Milestone.entries.filter { it.altitude <= Physics.JUPITER_ARRIVAL_ALT }.toSet())
+        val v12 = start.serialize().replace("v=5;", "v=4;").replace(";rings=0;satOrbit=0;encel=0;titanProbe=0;titan=0", "")
+        val h = Harness(v12)
+        val e = h.engine
+        assertEquals(start, e.save.value)
+        e.openHangar(); h.frame(true); e.launch()
+        assertEquals(MissionTarget.SATURN, e.target)
+        var frames = 0
+        var maxFrameAltJump = 0.0
+        var lastAlt = 0.0
+        val banners = ArrayList<String>()
+        var lastBanner = ""
+        var navCutSeen = false
+        var slowestNearJupiter = Double.MAX_VALUE
+        var iceSeen = false
+        while (e.phase != Phase.RESULTS && frames < 40_000) {
+            h.frame(true); frames++
+            if (e.hud.value.navCut) navCutSeen = true
+            val hb = e.hud.value.banner
+            if (hb != lastBanner) { banners += hb; lastBanner = hb }
+            val a = e.flight?.alt ?: 0.0
+            if (a > 1e9) maxFrameAltJump = maxOf(maxFrameAltJump, (a - lastAlt) / Physics.SATURN_ARRIVAL_ALT)
+            if (kotlin.math.abs(a - Physics.JUPITER_ARRIVAL_ALT) < 2e9) slowestNearJupiter = minOf(slowestNearJupiter, e.warp)
+            if (e.world.entities.any { it.kind == com.brandonwallace.rocketlauncher.game.EntityKind.ICE }) iceSeen = true
+            lastAlt = a
+        }
+        val r = e.hud.value.results!!
+        println("Saturn flight: frames=$frames (~${frames / 60}s) reason=${r.reason} level=${r.saturnLevel} sling=${r.slingshot} pay=${r.total} hits=${r.hits} maxStep=${"%.4f".format(maxFrameAltJump)} warpNearJupiter=$slowestNearJupiter")
+        println("Saturn banners: " + banners.joinToString(" | "))
+        assertEquals(MissionTarget.SATURN, r.target)
+        assertTrue("flew past Mars and Jupiter: ${r.reason}", r.marsReached && r.jupiterReached && !r.europaLanded)
+        assertTrue("reached Saturn: ${r.reason}", r.saturnReached)
+        assertTrue("flew on Titan: ${r.reason}", r.titanFlight && r.titanProbe && r.enceladus && r.saturnOrbit && r.ringsCrossed)
+        assertTrue("slingshot", r.slingshot)
+        assertTrue("nav computer cut the engines", navCutSeen)
+        assertTrue("Jupiter flyby is slowed down to be visible ($slowestNearJupiter)", slowestNearJupiter < 50_000)
+        assertTrue("ring ice on the way in", iceSeen)
+        for (b in listOf("MARS FLYBY", "JUPITER SLINGSHOT", "Jupiter Slingshot  +", "Halfway to Saturn  +", "Billion-Kilometer Club  +", "SATURN'S RINGS",
+                "Saturn Arrival  +", "Slingshot", "DRAGONFLY FLIES ON TITAN"))
+            assertTrue("banner '$b' shown", banners.any { it.contains(b) })
+        assertTrue("Saturn trip should take about 5 minutes (3.5-7 min) of real time, took ${frames / 60}s", frames in 12_600..25_200)
+        assertTrue("no single frame jumps more than 3% of the way", maxFrameAltJump < 0.03)
+        val s = e.save.value
+        assertEquals(1, s.ringCrossings); assertEquals(1, s.saturnOrbits); assertEquals(1, s.enceladusPasses); assertEquals(1, s.titanProbes); assertEquals(1, s.titanFlights)
+        assertTrue(Milestone.SATURN in s.milestones && Milestone.TITAN_ORBIT in s.milestones && Milestone.LIGHT_HOUR in s.milestones)
+        assertEquals("the whole mission is done", Mission.entries.size, Mission.doneCount(s))
+        assertTrue(com.brandonwallace.rocketlauncher.game.Achievement.GRAND_TOUR in s.achievements && com.brandonwallace.rocketlauncher.game.Achievement.TITAN_FLYER in s.achievements)
+        assertTrue(com.brandonwallace.rocketlauncher.game.Achievement.GRAND_TOUR in r.achievements)
+        val st = Economy.settle(0, r.maxAlt, start.milestones)
+        assertEquals(st.total, r.total)
         assertEquals(s, GameEngine(h.store).save.value)
     }
 
@@ -423,7 +483,7 @@ class SmokeTest {
         assertTrue("methalox is almost smokeless", metha.smoke < kero.smoke / 2)
         assertTrue("gas-generator soot trail", com.brandonwallace.rocketlauncher.gl.Exhaust.firstStage(RocketSpec(path[3])).soot > 0f)
         assertTrue("…gone with staged combustion", com.brandonwallace.rocketlauncher.gl.Exhaust.firstStage(RocketSpec(path[4])).soot == 0f)
-        val all = TechTree.nodes.map { it.id }.toSet()
+        val all = TechTree.nodes.filter { it.tier < TechTree.SATURN_TIER }.map { it.id }.toSet()   // the 1.2 tree
         val up = listOf(emptySet(), setOf("P_NTR"), setOf("P_NTR", "P_NTR2"), setOf("P_NTR", "P_NTR2", "P_PLASMA"), setOf("P_NTR", "P_NTR2", "P_PLASMA", "P_PLASMA2"))
             .map { com.brandonwallace.rocketlauncher.gl.Exhaust.upperStage(RocketSpec(all.filter { id -> !id.startsWith("P_NTR") && !id.startsWith("P_PLASMA") }.toSet() + it)) }
         println("upper-stage exhaust: ${up.map { it.name }}")
@@ -443,7 +503,8 @@ class SmokeTest {
         val gg = RocketModel(RocketSpec(path[3]), 24)
         assertTrue(gg.ggExhaust != null)
         // more parts the further up the tree you go
-        val counts = listOf(emptySet(), TechTree.nodes.filter { it.tier <= 4 }.map { it.id }.toSet(), TechTree.nodes.filter { !it.jupiterProgram }.map { it.id }.toSet(), all)
+        val counts = listOf(emptySet(), TechTree.nodes.filter { it.tier <= 4 }.map { it.id }.toSet(), TechTree.nodes.filter { it.tier < TechTree.JUPITER_TIER }.map { it.id }.toSet(), all,
+            TechTree.nodes.map { it.id }.toSet())
             .map { RocketModel(RocketSpec(it), 24).parts.size }
         println("rocket part counts along the tree: $counts")
         assertTrue(counts.zipWithNext().all { (x, y) -> y > x })

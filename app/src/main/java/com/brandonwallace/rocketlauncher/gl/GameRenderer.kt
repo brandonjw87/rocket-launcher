@@ -454,7 +454,7 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
 
     /** Unit direction from the rocket toward the flight target (Mars, or Jupiter later), for the deep-space camera. */
     private fun targetDir(out: FloatArray): FloatArray {
-        if (sTarget == MissionTarget.JUPITER) jupiterDirection(out) else marsDirection(out)
+        when (sTarget) { MissionTarget.MARS -> marsDirection(out); MissionTarget.JUPITER -> jupiterDirection(out); MissionTarget.SATURN -> saturnDirection(out) }
         return out
     }
 
@@ -540,7 +540,7 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
     private fun setMarsUniforms(p: ShaderProgram) {
         val show = sPhase == Phase.FLIGHT || sPhase == Phase.RESULTS
         if (!show) { p.f3("uMarsDir", 0f, 1f, 0f); p.f("uMarsD", 0f); return }
-        if (sTarget == MissionTarget.JUPITER) {
+        if (sTarget != MissionTarget.MARS) {
             val rx = MARS_FLYBY_KM * 0.406 - camX / 1000.0
             val ry = (Physics.MARS_ARRIVAL_ALT + Physics.MARS_RADIUS - camY) / 1000.0
             val rz = -MARS_FLYBY_KM * 0.914 - camZ / 1000.0
@@ -568,6 +568,14 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
 
     private fun jupiterDirection(out: FloatArray) {
         val prog = ((sAlt - Physics.MARS_ARRIVAL_ALT) / (Physics.JUPITER_ARRIVAL_ALT - Physics.MARS_ARRIVAL_ALT)).coerceIn(0.0, 1.0)
+        val th = Math.toRadians(24.0 * sqrt(1.0 - prog))
+        val dx = 0.4 * sin(th); val dz = -0.9 * sin(th); val dy = cos(th)
+        val n = sqrt(dx * dx + dy * dy + dz * dz)
+        out[0] = (dx / n).toFloat(); out[1] = (dy / n).toFloat(); out[2] = (dz / n).toFloat()
+    }
+
+    private fun saturnDirection(out: FloatArray) {
+        val prog = ((sAlt - Physics.JUPITER_ARRIVAL_ALT) / (Physics.SATURN_ARRIVAL_ALT - Physics.JUPITER_ARRIVAL_ALT)).coerceIn(0.0, 1.0)
         val th = Math.toRadians(24.0 * sqrt(1.0 - prog))
         val dx = 0.4 * sin(th); val dz = -0.9 * sin(th); val dy = cos(th)
         val n = sqrt(dx * dx + dy * dy + dz * dz)
@@ -791,10 +799,20 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
                     setDraw(l, m, MatType.PLAIN, tint = 0.75f)
                     (if (eSeed[i] > 0.5f) em.rock2 else em.rock).draw()
                 }
+                EntityKind.ICE -> {
+                    // ring / centaur ice: bright, bluish-white, slowly tumbling chunks
+                    val r = Math.toDegrees(eRot[i].toDouble()).toFloat()
+                    val sc = 1.6f + 1.2f * eSeed[i]
+                    Mat.trs(m, x, y, z, sc, sc * (0.75f + 0.25f * eSeed[i]), sc * 0.9f, rz = r, rx = r * 0.5f, ry = eSeed[i] * 360f)
+                    iceEm[0] = 0.04f; iceEm[1] = 0.06f; iceEm[2] = 0.09f
+                    setDraw(l, m, MatType.PLAIN, rough = 0.35f, tint = 2.9f, emissive = iceEm)
+                    (if (eSeed[i] > 0.5f) em.rock else em.rock2).draw()
+                }
             }
         }
     }
     private val meteorEm = FloatArray(3)
+    private val iceEm = FloatArray(3)
 
     // ------------------------------------------------------------------ shadows
 
@@ -902,6 +920,7 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
     private fun handleFx(rk: RocketModel) {
         val P = particles
         for (f in fxLocal) when (f) {
+            is Fx.Slingshot -> flash = max(flash, 0.7f)
             is Fx.Liftoff -> repeat(70) {
                 val dir = if (P.rnd() < 0.5f) -1f else 1f
                 P.emit(Particles.SMOKE, Particles.GROUND, dir * P.rnd(2f, 10f), 0.5f, P.rnd(-3f, 3f), dir * P.rnd(12f, 30f), P.rnd(1f, 6f), P.rnd(-5f, 5f),

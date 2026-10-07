@@ -31,10 +31,20 @@ data class FlightResult(
     /** The flight got past the Moon (the mission continues on to Mars). */
     val moonPassed: Boolean, val hits: Int,
     val marsReached: Boolean = false, val marsOrbit: Boolean = false, val marsLanded: Boolean = false,
-    /** Where this flight was headed (Mars until the first Mars landing, then Jupiter). */
+    /** Where this flight was headed (Mars until the first Mars landing, then Jupiter, then Saturn after Europa). */
     val target: MissionTarget = MissionTarget.MARS,
     val jupiterReached: Boolean = false, val jupiterOrbit: Boolean = false, val europaLanded: Boolean = false,
-)
+    /** Saturn flights: reached Saturn, and how far up the arrival ladder it got ([Arrival.FLYBY]..[Arrival.TITAN_FLIGHT]; -1 = not there). */
+    val saturnReached: Boolean = false, val saturnLevel: Int = -1,
+    /** Saturn flights: the Jupiter slingshot happened. */
+    val slingshot: Boolean = false,
+) {
+    val ringsCrossed: Boolean get() = saturnLevel >= Arrival.RINGS
+    val saturnOrbit: Boolean get() = saturnLevel >= Arrival.ORBIT
+    val enceladus: Boolean get() = saturnLevel >= Arrival.ENCELADUS
+    val titanProbe: Boolean get() = saturnLevel >= Arrival.TITAN_PROBE
+    val titanFlight: Boolean get() = saturnLevel >= Arrival.TITAN_FLIGHT
+}
 
 data class HudState(
     val phase: Phase = Phase.MENU,
@@ -52,9 +62,9 @@ data class HudState(
     val zone: String = "",
     val warp: Float = 1f,
     val throttle: Float = 0f,
-    /** Log-scale progress along the one mission path (Earth → Moon → Mars → Jupiter) toward this flight's target. */
+    /** Log-scale progress along the one mission path (Earth → Moon → Mars → Jupiter → Saturn) toward this flight's target. */
     val missionProgress: Float = 0f,
-    /** This flight's target (Mars, or Jupiter once Mars has been landed on). */
+    /** This flight's target (Mars, Jupiter once Mars has been landed on, Saturn once Europa has). */
     val target: MissionTarget = MissionTarget.MARS,
     val banner: String = "",
     val bannerId: Int = 0,
@@ -85,6 +95,8 @@ sealed class Fx {
     data class Hit(val x: Float, val y: Float) : Fx()
     data class Explode(val x: Float, val y: Float) : Fx()
     data object Liftoff : Fx()
+    /** The Jupiter slingshot just kicked the rocket (Saturn flights). */
+    data object Slingshot : Fx()
 }
 
 /** A separated stage or booster tumbling away. group >= 0: stage index, group < 0: booster -(group+1). */
@@ -160,6 +172,10 @@ class GameEngine(private val store: SaveStore) {
     private var jupiterReached = false
     private var jupiterOrbit = false
     private var europaLanded = false
+    private var saturnReached = false
+    private var saturnLevel = -1
+    private var slingshot = false
+    private var iceHits = 0
     private val newAch = ArrayList<Achievement>()
     private val newMilestones = ArrayList<Milestone>()
     private var zoneIdx = 0
@@ -196,7 +212,23 @@ class GameEngine(private val store: SaveStore) {
         3.5e11 to "🪐 Jupiter grows ahead",
         5.7e11 to "🪐 Jupiter approach — orbit insertion ahead",
     )
-    private val zones get() = if (target == MissionTarget.JUPITER) jupiterZones else marsZones
+    private val saturnZones = nearZones + listOf(
+        Physics.MOON_ARRIVAL_ALT to "🌕 LUNAR FLYBY — on to Mars, Jupiter and Saturn!",
+        6.0e8 to "🚀 TRANS-SATURN INJECTION — leaving Earth's pull",
+        1.5e10 to "☀️ Interplanetary cruise",
+        4.0e10 to "🔴 Mars grows ahead",
+        Physics.MARS_ARRIVAL_ALT to "🔴 MARS FLYBY — on to Jupiter and Saturn!",
+        Physics.ASTEROID_BELT_START to "☄️ ENTERING THE ASTEROID BELT",
+        Physics.ASTEROID_BELT_END to "☄️ Through the asteroid belt",
+        3.5e11 to "🟠 Jupiter grows ahead",
+        5.6e11 to "🟠 Jupiter flyby ahead — slingshot to Saturn",
+        Physics.JUPITER_ARRIVAL_ALT to "🟠 JUPITER FLYBY — on to Saturn!",
+        Physics.CENTAUR_ZONE_START to "🧊 Icy centaurs ahead",
+        9.0e11 to "🌌 Deep cruise — Saturn is a bright star ahead",
+        1.1e12 to "🪐 Saturn grows ahead — you can see the rings",
+        Physics.RING_ZONE_START to "💫 SATURN'S RINGS — ring-plane crossing ahead!",
+    )
+    private val zones get() = when (target) { MissionTarget.MARS -> marsZones; MissionTarget.JUPITER -> jupiterZones; MissionTarget.SATURN -> saturnZones }
 
     fun zoneName(alt: Double): String = when {
         alt < 2_500 -> "Lower atmosphere"
@@ -211,7 +243,12 @@ class GameEngine(private val store: SaveStore) {
         alt < Physics.ASTEROID_BELT_START -> "Beyond Mars"
         alt < Physics.ASTEROID_BELT_END -> "Asteroid belt"
         alt < 5.0e11 -> "Outer solar system"
-        else -> "Jupiter approach"
+        alt < Physics.JUPITER_ARRIVAL_ALT || target == MissionTarget.JUPITER -> "Jupiter approach"
+        alt < Physics.CENTAUR_ZONE_START -> "Beyond Jupiter"
+        alt < Physics.CENTAUR_ZONE_END -> "Centaur zone"
+        alt < 1.15e12 -> "Outer solar system"
+        alt < Physics.RING_ZONE_START -> "Saturn approach"
+        else -> "Saturn's ring system"
     }
 
     // ---------------- UI commands (main thread) ----------------
@@ -352,11 +389,12 @@ class GameEngine(private val store: SaveStore) {
 
     private fun beginFlight() {
         phase = Phase.FLIGHT
-        flight = FlightState(spec)
+        flight = FlightState(spec, target)
         autoThrottle = 1.0; autoSteer = 0f
-        endTimer = 0f; descendTimer = 0f; hits = 0
+        endTimer = 0f; descendTimer = 0f; hits = 0; iceHits = 0
         endReason = ""; moonPassed = false; marsReached = false; marsOrbit = false; marsLanded = false
         jupiterReached = false; jupiterOrbit = false; europaLanded = false
+        saturnReached = false; saturnLevel = -1; slingshot = false
         newAch.clear(); newMilestones.clear(); zoneIdx = 0
         bannerQueue.clear(); bannerCooldown = 0f
         sfx(Sfx.LIFTOFF)
@@ -379,9 +417,9 @@ class GameEngine(private val store: SaveStore) {
         if (laneX < -World.LANE) { laneX = -World.LANE; laneVx = 0f }
 
         val targetAlt = target.arrivalAlt
-        val arrived = if (target == MissionTarget.MARS) marsReached else jupiterReached
+        val arrived = when (target) { MissionTarget.MARS -> marsReached; MissionTarget.JUPITER -> jupiterReached; MissionTarget.SATURN -> saturnReached }
         if (!arrived && !exploded) {
-            val coastWarp = Physics.timeWarp(f.alt, Physics.warpCap(target, f.alt))
+            val coastWarp = Physics.timeWarp(f.alt, Physics.warpCap(target, f.alt, f.vy))
             val burning = holding && f.hasThrustAvailable()
             val warpGoal = if (burning) min(coastWarp, Physics.BURN_WARP_CAP) else coastWarp
             // drop instantly when a burn starts (fuel use stays controllable), ease back up when coasting
@@ -444,14 +482,22 @@ class GameEngine(private val store: SaveStore) {
                 showBanner("Booster separation")
             }
             FlightEvent.Liftoff -> fx.add(Fx.Liftoff)
+            is FlightEvent.Slingshot -> {
+                slingshot = true
+                fx.add(Fx.Slingshot); sfx(Sfx.WHOOSH); shake = max(shake, 0.8f)
+                showBanner("🌀 JUPITER SLINGSHOT  +%.1f km/s!".format(e.kick / 1000.0), urgent = true)
+                unlock(Achievement.SLINGSHOT)
+            }
         }
     }
 
     private fun handleWorldEvent(e: WorldEvent, f: FlightState) {
         when (e) {
             is WorldEvent.Hit -> {
-                f.hull -= e.damage
+                // ring ice is softened by the ring-plane shields
+                f.hull -= if (e.kind == EntityKind.ICE) e.damage * spec.iceDamageMul else e.damage
                 hits++
+                if (e.kind == EntityKind.ICE) iceHits++
                 fx.add(Fx.Hit(e.x, e.y))
                 shake = 1.2f
                 sfx(Sfx.HIT)
@@ -476,8 +522,13 @@ class GameEngine(private val store: SaveStore) {
             moonPassed = true
             unlock(Achievement.MOON_LANDING)   // "Lunar Flyby" badge (enum name kept for old saves)
         }
-        if (target == MissionTarget.JUPITER && !marsReached && f.maxAlt >= Physics.MARS_ARRIVAL_ALT) marsReached = true
+        if (target != MissionTarget.MARS && !marsReached && f.maxAlt >= Physics.MARS_ARRIVAL_ALT) marsReached = true
+        if (target == MissionTarget.SATURN && !jupiterReached && f.maxAlt >= Physics.JUPITER_ARRIVAL_ALT) jupiterReached = true
         if (f.maxAlt >= Physics.ASTEROID_BELT_START) unlock(Achievement.ASTEROID_BELT)
+        if (f.maxAlt >= Physics.LIGHT_HOUR) unlock(Achievement.LIGHT_HOUR)
+        if (f.time >= 3 * 365.25 * 86_400) unlock(Achievement.LONG_HAUL)
+        if (target == MissionTarget.SATURN && spec.cruiseAccel > 0.0 && f.alt > Physics.JUPITER_ARRIVAL_ALT) unlock(Achievement.SAILOR)
+        if (spec.has("P_AMAT2") && f.liftedOff) unlock(Achievement.ANTIMATTER)
         for (m in Milestone.entries) {
             if (f.maxAlt >= m.altitude && m !in _save.value.milestones && m !in newMilestones) {
                 newMilestones.add(m)
@@ -489,7 +540,9 @@ class GameEngine(private val store: SaveStore) {
         if (v >= 343) unlock(Achievement.SOUND_BARRIER)
         if (v >= 5_000) unlock(Achievement.HYPERSONIC)
         if (v >= 11_000) unlock(Achievement.ESCAPE)
+        if (v >= 25_000) unlock(Achievement.OUTER_EXPRESS)
         if (f.stagesSeparated >= 3) unlock(Achievement.STAGER)
+        if (f.stagesSeparated >= 7) unlock(Achievement.BIG_STACK)
     }
 
     private fun checkEnd(f: FlightState, holding: Boolean, dt: Float) {
@@ -504,7 +557,11 @@ class GameEngine(private val store: SaveStore) {
                 fx.add(Fx.Explode(laneX, remainingLength() * 0.5f)); sfx(Sfx.EXPLODE); shake = 2f
                 showBanner("💥 Hull failure!", urgent = true)
             }
-            f.alt >= target.arrivalAlt -> if (target == MissionTarget.MARS) arriveAtMars(f) else arriveAtJupiter(f)
+            f.alt >= target.arrivalAlt -> when (target) {
+                MissionTarget.MARS -> arriveAtMars(f)
+                MissionTarget.JUPITER -> arriveAtJupiter(f)
+                MissionTarget.SATURN -> arriveAtSaturn(f)
+            }
             f.liftedOff && f.alt <= 0.0 && f.vy <= 0 -> { ending = true; endTimer = 0.8f; endReason = "Crashed back to Earth" }
             else -> {
                 val canBurn = holding && f.hasThrustAvailable()
@@ -522,6 +579,15 @@ class GameEngine(private val store: SaveStore) {
         val last = spec.stages.last().fuelMass
         val spare = f.stage < spec.stages.size - 1
         val fuel = f.remainingFuel()
+        if (target == MissionTarget.SATURN) return when {
+            !(spare || fuel >= spec.saturnCaptureFuelFrac * last) -> "⚠ not enough fuel for Saturn orbit"
+            !spec.ringShield -> "fuel ✓ · crossing the rings needs a Ring-Plane Dust Shield"
+            !spec.plumeReady -> "orbit fuel ✓ · Enceladus needs a Plume Mass Spectrometer"
+            !spec.titanProbeReady -> "orbit fuel ✓ · Titan needs an aeroshell + Huygens probe"
+            !spec.titanFlightReady -> "orbit fuel ✓ · flying on Titan needs the Dragonfly Rotorcraft"
+            spare || fuel >= spec.titanLandingFuelFrac * last -> "Titan landing fuel ✓"
+            else -> "orbit fuel ✓ · not enough to fly on Titan"
+        }
         if (target == MissionTarget.JUPITER) return when {
             !(spare || fuel >= RocketSpec.JUPITER_CAPTURE_FUEL_FRAC * last) -> "⚠ not enough fuel for Jupiter orbit"
             !spec.jupiterRadiationReady -> "fuel ✓ · Jupiter orbit needs a Radiation Vault"
@@ -560,6 +626,42 @@ class GameEngine(private val store: SaveStore) {
         sfx(Sfx.WIN)
     }
 
+    private fun arriveAtSaturn(f: FlightState) {
+        saturnReached = true
+        jupiterReached = true
+        marsReached = true
+        val a = Arrival.evaluate(spec, MissionTarget.SATURN, f.stage, f.remainingFuel())
+        saturnLevel = a.level
+        if (saturnLevel >= Arrival.RINGS) unlock(Achievement.RING_RIDER)
+        if (saturnLevel >= Arrival.ORBIT) unlock(Achievement.LORD_OF_RINGS)
+        if (saturnLevel >= Arrival.ENCELADUS) unlock(Achievement.GEYSER)
+        if (saturnLevel >= Arrival.TITAN_PROBE) unlock(Achievement.HUYGENS)
+        if (saturnLevel >= Arrival.TITAN_FLIGHT) unlock(Achievement.TITAN_FLYER)
+        ending = true; endTimer = 4.5f
+        val pct = (spec.titanLandingFuelFrac * 100).toInt()
+        val capPct = (spec.saturnCaptureFuelFrac * 100).toInt()
+        endReason = when (saturnLevel) {
+            Arrival.TITAN_FLIGHT -> "Flew on Titan!"
+            Arrival.TITAN_PROBE -> if (!spec.titanFlightReady) "Probe landed on Titan — research the Dragonfly Rotorcraft to fly there"
+                else "Probe landed on Titan — arrive with $pct% fuel or a spare stage to fly the rotorcraft"
+            Arrival.ENCELADUS -> "Flew through Enceladus' plumes — research the Titan Entry Aeroshell and Huygens-Class Probe to land on Titan"
+            Arrival.ORBIT -> "Captured into Saturn orbit — research the Plume Mass Spectrometer to fly through Enceladus' geysers"
+            Arrival.RINGS -> if (!Autopilot.canNavCut(spec, MissionTarget.SATURN))
+                "Crossed the rings — the autopilot burned every drop; research Next-Gen RTGs to power the nav computer past Jupiter"
+                else "Crossed the rings — no fuel left for Saturn orbit (needs $capPct% or a spare stage)"
+            else -> "Saturn flyby — ring dust sandblasted the electronics; research the Ring-Plane Dust Shield"
+        }
+        showBanner(when (saturnLevel) {
+            Arrival.TITAN_FLIGHT -> "🚁 DRAGONFLY FLIES ON TITAN!"
+            Arrival.TITAN_PROBE -> "🪂 TOUCHDOWN ON TITAN!"
+            Arrival.ENCELADUS -> "⛲ THROUGH ENCELADUS' GEYSERS!"
+            Arrival.ORBIT -> "🪐 SATURN ORBIT INSERTION"
+            Arrival.RINGS -> "💫 Ring-plane crossing"
+            else -> "🪐 Saturn flyby"
+        }, urgent = true)
+        sfx(Sfx.WIN)
+    }
+
     private fun arriveAtMars(f: FlightState) {
         marsReached = true
         val a = Arrival.evaluate(spec, MissionTarget.MARS, f.stage, f.remainingFuel())
@@ -585,35 +687,46 @@ class GameEngine(private val store: SaveStore) {
         val s0 = _save.value
         if (s0.flights == 0) unlock(Achievement.FIRST_FLIGHT)
         if (hits >= 3 && f.hull > 0) unlock(Achievement.TOUGH)
+        if (iceHits >= 3 && f.hull > 0) unlock(Achievement.ICE_BREAKER)
+        if (s0.flights + 1 >= 150) unlock(Achievement.VETERAN)
         // hidden interest on the money left unspent at launch, folded into "Flight performance"
         val st = Economy.settle(balanceAtLaunch, f.maxAlt, s0.milestones, s0.interestCarry)
         val records = ArrayList<String>()
         if (f.maxAlt > s0.bestAltitude) records.add("Altitude")
         if (f.topSpeed > s0.bestSpeed) records.add("Speed")
         val newBalance = s0.money + st.total
-        val r = FlightResult(
+        var next = s0.copy(
+            money = newBalance,
+            milestones = s0.milestones + st.milestones,
+            bestAltitude = max(s0.bestAltitude, f.maxAlt),
+            bestSpeed = max(s0.bestSpeed, f.topSpeed),
+            flights = s0.flights + 1,
+            achievements = s0.achievements + newAch,
+            totalEarned = s0.totalEarned + st.total,
+            marsOrbits = s0.marsOrbits + (if (marsOrbit) 1 else 0),
+            marsLandings = s0.marsLandings + (if (marsLanded) 1 else 0),
+            jupiterOrbits = s0.jupiterOrbits + (if (jupiterOrbit) 1 else 0),
+            europaLandings = s0.europaLandings + (if (europaLanded) 1 else 0),
+            ringCrossings = s0.ringCrossings + (if (saturnLevel >= Arrival.RINGS) 1 else 0),
+            saturnOrbits = s0.saturnOrbits + (if (saturnLevel >= Arrival.ORBIT) 1 else 0),
+            enceladusPasses = s0.enceladusPasses + (if (saturnLevel >= Arrival.ENCELADUS) 1 else 0),
+            titanProbes = s0.titanProbes + (if (saturnLevel >= Arrival.TITAN_PROBE) 1 else 0),
+            titanFlights = s0.titanFlights + (if (saturnLevel >= Arrival.TITAN_FLIGHT) 1 else 0),
+            interestCarry = st.interestCarry,
+        )
+        // this flight may have finished the whole mission: one more badge
+        if (Mission.next(next) == null && Achievement.GRAND_TOUR !in next.achievements && Achievement.GRAND_TOUR !in newAch) {
+            newAch.add(Achievement.GRAND_TOUR)
+            next = next.copy(achievements = next.achievements + Achievement.GRAND_TOUR)
+        }
+        results = FlightResult(
             f.maxAlt, f.topSpeed, f.time, st.performancePay, st.milestones, st.total, newBalance,
             records, newAch.toList(), endReason.ifEmpty { "Flight over" }, moonPassed, hits,
             marsReached, marsOrbit, marsLanded,
             target, jupiterReached, jupiterOrbit, europaLanded,
+            saturnReached, saturnLevel, slingshot,
         )
-        commit(
-            s0.copy(
-                money = newBalance,
-                milestones = s0.milestones + st.milestones,
-                bestAltitude = max(s0.bestAltitude, f.maxAlt),
-                bestSpeed = max(s0.bestSpeed, f.topSpeed),
-                flights = s0.flights + 1,
-                achievements = s0.achievements + newAch,
-                totalEarned = s0.totalEarned + st.total,
-                marsOrbits = s0.marsOrbits + (if (marsOrbit) 1 else 0),
-                marsLandings = s0.marsLandings + (if (marsLanded) 1 else 0),
-                jupiterOrbits = s0.jupiterOrbits + (if (jupiterOrbit) 1 else 0),
-                europaLandings = s0.europaLandings + (if (europaLanded) 1 else 0),
-                interestCarry = st.interestCarry,
-            )
-        )
-        results = r
+        commit(next)
         phase = Phase.RESULTS
         ending = false
         engineGlow = 0f
@@ -647,11 +760,11 @@ class GameEngine(private val store: SaveStore) {
             ending = ending,
             mach = if (f == null) 0f else (abs(f.vy) / Physics.speedOfSound(f.alt)).toFloat(),
             results = results,
-            bound = inFlight && f.alt > 160_000 && Physics.bound(f.alt, f.vy, target.arrivalAlt),
-            arrivalNote = if (inFlight && f.alt > 160_000 && Physics.bound(f.alt, f.vy, target.arrivalAlt)) arrivalStatus(f) else "",
+            bound = inFlight && f.alt > 160_000 && Autopilot.coastReaches(spec, f.alt, f.vy, target, f.slung),
+            arrivalNote = if (inFlight && f.alt > 160_000 && Autopilot.coastReaches(spec, f.alt, f.vy, target, f.slung)) arrivalStatus(f) else "",
             radar = if (inFlight && spec.hazardRadar) world.incoming() else emptyList(),
             autoThrottling = inFlight && spec.autoThrottle && f.heat > 0.7 && autoThrottle > 0.0,
-            navCut = inFlight && Autopilot.navCut(spec, f.alt, f.vy, target),
+            navCut = inFlight && Autopilot.navCut(spec, f.alt, f.vy, target, f.slung),
             evading = inFlight && abs(autoSteer) >= 0.99f,
             moonPassed = inFlight && moonPassed,
             soundOn = _save.value.soundOn,
@@ -662,7 +775,7 @@ class GameEngine(private val store: SaveStore) {
 /** Hazard layout seed for a given flight number (deterministic, so outcomes depend only on upgrades). */
 fun hazardSeed(flightIndex: Int): Int = 0x5EED + 7919 * flightIndex
 
-/** Log-scale fraction of the one mission path (0 at the pad, 1 at the target: Mars, or Jupiter later). */
+/** Log-scale fraction of the one mission path (0 at the pad, 1 at the target: Mars, Jupiter or Saturn). */
 fun missionFraction(alt: Double, target: MissionTarget = MissionTarget.MARS): Float =
     (ln(1.0 + alt / 1000.0) / ln(1.0 + target.arrivalAlt / 1000.0)).toFloat().coerceIn(0f, 1f)
 

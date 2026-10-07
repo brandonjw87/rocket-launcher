@@ -30,12 +30,33 @@ enum class Milestone(val title: String, val altitude: Double, val bonus: Long) {
     ASTEROID_BELT("Asteroid Belt", Physics.ASTEROID_BELT_START, 30_000),
     JUPITER_APPROACH("Jupiter Approach", 5.0e11, 45_000),
     JUPITER("Jupiter Arrival", Physics.JUPITER_ARRIVAL_ALT, 80_000),
+    // 1.3: the mission swings past Jupiter on to Saturn (1.2 billion km)
+    JUPITER_SLINGSHOT("Jupiter Slingshot", 6.0e11, 48_000),
+    JOVIAN_MOONS("Past Jupiter's Outer Moons", 6.2e11, 50_000),
+    MAGNETOTAIL("Jupiter's Magnetotail", 6.5e11, 52_000),
+    KM_700M("700 Million km", 7.0e11, 55_000),
+    CENTAUR_ZONE("Centaur Zone", Physics.CENTAUR_ZONE_START, 58_000),
+    KM_800M("800 Million km", 8.0e11, 62_000),
+    DEEP_OUTER("Deep Outer System", 8.5e11, 66_000),
+    HALFWAY_SATURN("Halfway to Saturn", (Physics.JUPITER_ARRIVAL_ALT + Physics.SATURN_ARRIVAL_ALT) / 2, 72_000),
+    CASSINI_CRUISE("Cassini's Cruise", 9.5e11, 76_000),
+    BILLION_KM("Billion-Kilometer Club", 1.0e12, 90_000),
+    LIGHT_HOUR("One Light-Hour from Earth", Physics.LIGHT_HOUR, 95_000),
+    KM_1100M("1.1 Billion km", 1.1e12, 100_000),
+    SATURN_APPROACH("Saturn Approach", 1.15e12, 110_000),
+    PHOEBE("Phoebe's Orbit", Physics.SATURN_ARRIVAL_ALT - 1.3e10, 115_000),
+    IAPETUS("Iapetus' Orbit", Physics.SATURN_ARRIVAL_ALT - 3.5e9, 120_000),
+    BOW_SHOCK("Saturn's Bow Shock", Physics.SATURN_ARRIVAL_ALT - 1.6e9, 125_000),
+    TITAN_ORBIT("Titan's Orbit", Physics.SATURN_ARRIVAL_ALT - 1.16e9, 130_000),
+    SATURN("Saturn Arrival", Physics.SATURN_ARRIVAL_ALT, 163_000),
 }
 
 /**
  * The single continuous mission: launch → space → orbit → past the Moon → Mars transfer → Mars orbit →
- * Mars landing → past Mars to Jupiter → Jupiter orbit → Europa landing, all on one flight path. Progress is
- * derived from the save (no rewards of its own). Enum names are not stored in saves.
+ * Mars landing → past Mars to Jupiter → Jupiter orbit → Europa landing → (1.3) Jupiter slingshot → halfway to
+ * Saturn → a billion km → Saturn → ring crossing → Saturn orbit → Enceladus' plumes → Titan probe → Titan
+ * flight, all on one flight path. Progress is derived from the save (no rewards of its own). Enum names are not
+ * stored in saves.
  */
 enum class Mission(val title: String, val desc: String, val icon: String) {
     SPACE("Reach space", "Cross the Kármán line at 100 km", "🌌"),
@@ -46,7 +67,20 @@ enum class Mission(val title: String, val desc: String, val icon: String) {
     MARS_LANDING("Land on Mars", "PICA-X aeroshell + supersonic parachute + landing fuel", "🔴"),
     JUPITER_TRANSFER("Cross the asteroid belt", "Fly past Mars and on into the asteroid belt toward Jupiter", "☄️"),
     JUPITER_ORBIT("Jupiter orbit", "Reach Jupiter with 5% fuel or a spare stage, inside a radiation vault", "🪐"),
-    EUROPA_LANDING("Land on Europa", "Europa lander + radiation-hardened electronics + landing fuel", "🧊");
+    EUROPA_LANDING("Land on Europa", "Europa lander + radiation-hardened electronics + landing fuel", "🧊"),
+    // 1.3: the Saturn chapter
+    JUPITER_SLINGSHOT("Jupiter slingshot", "Swing past Jupiter on the way to Saturn", "🌀"),
+    HALFWAY_SATURN("Halfway to Saturn", "Fly 894 million km: halfway from Jupiter to Saturn", "🧭"),
+    BILLION_KM("Billion-kilometer club", "Fly 1 billion km from Earth", "✨"),
+    SATURN_ARRIVAL("Reach Saturn", "Fly all the way to Saturn: 1.2 billion km", "🪐"),
+    RING_CROSSING("Cross the rings", "Reach Saturn with a Ring-Plane Dust Shield", "💫"),
+    SATURN_ORBIT("Saturn orbit", "Arrive with capture fuel (6%, less with aerocapture) or a spare stage", "🛰️"),
+    ENCELADUS("Fly through Enceladus' plumes", "Saturn orbit + a Plume Mass Spectrometer", "⛲"),
+    TITAN_PROBE("Land a probe on Titan", "Titan Entry Aeroshell + Huygens-Class Probe", "🪂"),
+    TITAN_FLIGHT("Fly on Titan", "Dragonfly Rotorcraft + landing fuel (6%, or 3% with the descent stage)", "🚁");
+
+    /** Mission steps 1-9 take you to Europa (1.2); steps 10-18 are the Saturn chapter (1.3). */
+    val saturnChapter: Boolean get() = ordinal >= JUPITER_SLINGSHOT.ordinal
 
     fun done(s: SaveData): Boolean = when (this) {
         SPACE -> Milestone.KARMAN in s.milestones
@@ -58,6 +92,15 @@ enum class Mission(val title: String, val desc: String, val icon: String) {
         JUPITER_TRANSFER -> Milestone.ASTEROID_BELT in s.milestones || s.jupiterOrbits > 0 || s.europaLandings > 0
         JUPITER_ORBIT -> s.jupiterOrbits > 0 || s.europaLandings > 0
         EUROPA_LANDING -> s.europaLandings > 0
+        JUPITER_SLINGSHOT -> Milestone.JUPITER_SLINGSHOT in s.milestones || s.ringCrossings > 0 || s.saturnOrbits > 0
+        HALFWAY_SATURN -> Milestone.HALFWAY_SATURN in s.milestones || s.ringCrossings > 0 || s.saturnOrbits > 0
+        BILLION_KM -> Milestone.BILLION_KM in s.milestones || s.ringCrossings > 0 || s.saturnOrbits > 0
+        SATURN_ARRIVAL -> Milestone.SATURN in s.milestones || s.ringCrossings > 0 || s.saturnOrbits > 0
+        RING_CROSSING -> s.ringCrossings > 0 || s.saturnOrbits > 0
+        SATURN_ORBIT -> s.saturnOrbits > 0
+        ENCELADUS -> s.enceladusPasses > 0 || s.titanProbes > 0 || s.titanFlights > 0
+        TITAN_PROBE -> s.titanProbes > 0 || s.titanFlights > 0
+        TITAN_FLIGHT -> s.titanFlights > 0
     }
 
     companion object {
@@ -84,6 +127,22 @@ enum class Achievement(val title: String, val desc: String) {
     ASTEROID_BELT("Rock Hopper", "Cross into the asteroid belt"),
     JUPITER_ORBIT("King of the Planets", "Capture into orbit around Jupiter"),
     EUROPA_LANDING("Ice Explorer", "Land on Europa"),
+    // 1.3
+    SLINGSHOT("Slingshot", "Get a speed boost from a Jupiter flyby"),
+    OUTER_EXPRESS("Outer-Planet Express", "Fly faster than 25 km/s"),
+    BIG_STACK("Eight-Stage Stack", "Separate 7 stages in one flight"),
+    LIGHT_HOUR("Light-Hour Traveller", "Fly one light-hour from Earth"),
+    LONG_HAUL("Long Haul", "Fly one flight lasting over 3 years (sim time)"),
+    SAILOR("Sun Sailor", "Cruise past Jupiter with a sail or ion engines pushing"),
+    ICE_BREAKER("Ice Breaker", "Survive 3 ring-ice hits in one flight"),
+    RING_RIDER("Ring Rider", "Cross Saturn's ring plane"),
+    LORD_OF_RINGS("Lord of the Rings", "Capture into orbit around Saturn"),
+    GEYSER("Geyser Taster", "Fly through Enceladus' ice plumes"),
+    HUYGENS("Huygens' Heir", "Land a probe on Titan"),
+    TITAN_FLYER("Titan Flyer", "Fly a rotorcraft on Titan"),
+    ANTIMATTER("Antimatter Pilot", "Fly with the Antimatter Beam Core"),
+    VETERAN("Veteran", "Complete 150 flights"),
+    GRAND_TOUR("Grand Tour", "Complete every step of the mission"),
 }
 
 /**
@@ -119,10 +178,13 @@ object Economy {
 
     /** Extra distance pay for the leg past Mars, reaching this at Jupiter (1.2). */
     const val DEEP_SPACE_PAY = 20_000.0
+    /** Extra distance pay for the leg past Jupiter, reaching this at Saturn (1.3): Saturn pays 2.04x Jupiter. */
+    const val SATURN_PAY = 29_000.0
 
     /**
-     * Pay for the highest altitude reached. Grows fast in the atmosphere, logarithmically in space, and past Mars
-     * (Jupiter flights) by distance travelled beyond Mars. Up to Mars it is exactly the 1.1 formula.
+     * Pay for the highest altitude reached. Grows fast in the atmosphere, logarithmically in space, past Mars
+     * by distance travelled beyond Mars and past Jupiter (Saturn flights) by distance beyond Jupiter. Up to Mars
+     * it is exactly the 1.1 formula, up to Jupiter the 1.2 one.
      */
     fun altitudePay(maxAltM: Double): Long {
         val km = maxAltM / 1000.0
@@ -131,7 +193,9 @@ object Economy {
         val high = if (km > 100.0) 420.0 * ln(km / 100.0) else 0.0
         val beyondMars = (maxAltM - Physics.MARS_ARRIVAL_ALT) / (Physics.JUPITER_ARRIVAL_ALT - Physics.MARS_ARRIVAL_ALT)
         val deep = if (beyondMars > 0.0) DEEP_SPACE_PAY * beyondMars.coerceAtMost(1.0).pow(0.7) else 0.0
-        return (low + high + deep).roundToLong()
+        val beyondJupiter = (maxAltM - Physics.JUPITER_ARRIVAL_ALT) / (Physics.SATURN_ARRIVAL_ALT - Physics.JUPITER_ARRIVAL_ALT)
+        val outer = if (beyondJupiter > 0.0) SATURN_PAY * beyondJupiter.coerceAtMost(1.0).pow(0.7) else 0.0
+        return (low + high + deep + outer).roundToLong()
     }
 
     /** Exact interest on the money left unspent at launch (no rounding at all). */
@@ -171,6 +235,8 @@ object Economy {
  *  - 3: Rocket Launcher 1.1 — single Moon→Mars mission (no "dest"), autopilot only (no "tilt"), hidden
  *       interest remainder "ic".
  *  - 4: Rocket Launcher 1.2 — the mission continues to Jupiter: career counters "jupOrbit" and "europa".
+ *  - 5: Rocket Launcher 1.3 — the mission continues to Saturn: career counters "rings", "satOrbit", "encel",
+ *       "titanProbe" and "titan".
  * Rules for future builds: bump [SAVE_SCHEMA_VERSION], add a step to [MIGRATIONS] that renames/removes keys,
  * give every new field a default. Unknown keys (e.g. written by a newer build) are kept in [extras] and written
  * back untouched, so nothing is ever wiped.
@@ -190,6 +256,13 @@ data class SaveData(
     val marsLandings: Int = 0,
     val jupiterOrbits: Int = 0,
     val europaLandings: Int = 0,
+    /** 1.3 Saturn career counters: flights that crossed the ring plane, captured into Saturn orbit, flew through
+     *  Enceladus' plumes, landed a probe on Titan and flew a rotorcraft on Titan (each counts the steps below it). */
+    val ringCrossings: Int = 0,
+    val saturnOrbits: Int = 0,
+    val enceladusPasses: Int = 0,
+    val titanProbes: Int = 0,
+    val titanFlights: Int = 0,
     val soundOn: Boolean = true,
     /** 0 = Low, 1 = Medium, 2 = High. */
     val quality: Int = 1,
@@ -220,6 +293,11 @@ data class SaveData(
         append(";mars=").append(marsLandings)
         append(";jupOrbit=").append(jupiterOrbits)
         append(";europa=").append(europaLandings)
+        append(";rings=").append(ringCrossings)
+        append(";satOrbit=").append(saturnOrbits)
+        append(";encel=").append(enceladusPasses)
+        append(";titanProbe=").append(titanProbes)
+        append(";titan=").append(titanFlights)
         append(";sound=").append(soundOn)
         append(";q=").append(quality)
         append(";ic=").append(interestCarry.setScale(Economy.CARRY_SCALE, RoundingMode.FLOOR).toPlainString())
@@ -231,10 +309,11 @@ data class SaveData(
 
     companion object {
         /** Current save schema. See the class doc for the history. */
-        const val SAVE_SCHEMA_VERSION = 4
+        const val SAVE_SCHEMA_VERSION = 5
 
         /** Keys written by [serialize]; anything else found in a save is preserved in [extras]. */
-        val KNOWN_KEYS = setOf("v", "money", "bestAlt", "bestSpd", "flights", "earned", "moon", "marsOrbit", "mars", "jupOrbit", "europa", "sound", "q", "ic", "tech", "ms", "ach")
+        val KNOWN_KEYS = setOf("v", "money", "bestAlt", "bestSpd", "flights", "earned", "moon", "marsOrbit", "mars", "jupOrbit", "europa",
+            "rings", "satOrbit", "encel", "titanProbe", "titan", "sound", "q", "ic", "tech", "ms", "ach")
 
         /** Tech/milestone/achievement ids renamed between builds (old -> new). Empty so far; add, never remove. */
         val TECH_RENAMES: Map<String, String> = emptyMap()
@@ -252,6 +331,9 @@ data class SaveData(
             3 to { m ->                                      // 1.1 -> 1.2: Jupiter leg (money, tech, milestones untouched)
                 m.putIfAbsent("jupOrbit", "0")
                 m.putIfAbsent("europa", "0")
+            },
+            4 to { m ->                                      // 1.2 -> 1.3: Saturn leg (money, tech, milestones untouched)
+                for (k in listOf("rings", "satOrbit", "encel", "titanProbe", "titan")) m.putIfAbsent(k, "0")
             },
         )
 
@@ -302,6 +384,11 @@ data class SaveData(
                 marsLandings = m["mars"]?.toIntOrNull() ?: 0,
                 jupiterOrbits = m["jupOrbit"]?.toIntOrNull() ?: 0,
                 europaLandings = m["europa"]?.toIntOrNull() ?: 0,
+                ringCrossings = m["rings"]?.toIntOrNull() ?: 0,
+                saturnOrbits = m["satOrbit"]?.toIntOrNull() ?: 0,
+                enceladusPasses = m["encel"]?.toIntOrNull() ?: 0,
+                titanProbes = m["titanProbe"]?.toIntOrNull() ?: 0,
+                titanFlights = m["titan"]?.toIntOrNull() ?: 0,
                 soundOn = m["sound"]?.toBooleanStrictOrNull() ?: true,
                 quality = (m["q"]?.toIntOrNull() ?: 1).coerceIn(0, 2),
                 interestCarry = carry.setScale(Economy.CARRY_SCALE, RoundingMode.FLOOR),
