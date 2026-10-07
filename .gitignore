@@ -1,0 +1,26 @@
+# Gradle / build outputs
+build/
+.gradle/
+.kotlin/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local machine config
+local.properties
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Packaged apps (no exceptions)
+*.apk
+*.aab
+
+# Logs
+build.log
+*.log
+
+# Temp files
+*.tmp
