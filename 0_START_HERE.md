@@ -83,6 +83,7 @@ Google Drive as a **new file**. Don't put it on GitHub.
 3. Pick the **same track you used for 1.2**:
    - If 1.2 is **live for everyone**, choose **Production**.
    - If 1.2 is only in **Internal testing** or **Closed testing**, choose that track.
+   - If you never uploaded 1.2, that's fine: 1.3 includes everything from 1.2. Use the track you used for 1.1.
      (New personal developer accounts must run a **closed test with at least 12 testers for 14 days** before Google
      allows Production. If the Production page asks for this, stay on the closed test for now.)
 4. Click **Create new release**.
