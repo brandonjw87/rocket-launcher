@@ -33,11 +33,9 @@ Open **PowerShell** and run:
 ```powershell
 cd C:\Users\Brandon\AndroidProjects\RocketLauncher
 git fetch origin
-git checkout ccr-2d2b684e-wqbor2
+git checkout main
 git pull
 ```
-
-(Once this branch is merged into `main`, use `git checkout main` and `git pull` instead.)
 
 Check it's the new version. This line should print `versionCode = 4`:
 
