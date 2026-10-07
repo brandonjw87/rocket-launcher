@@ -560,7 +560,7 @@ void main() {
                 float minR = 0.0016;
                 if (1.0 / uJupD < minR) bg += vec3(1.0, 0.86, 0.62) * uSunI * 0.9 * smoothstep(minR, minR * 0.25, sqrt(s2)) * smoothstep(40.0, 90.0, uAltKm);
             }
-            if (uJupD < 300.0) {
+            if (uJupD < 3000.0) {
                 for (int i = 0; i < 4; i++) {
                     vec4 gd = galData(i);
                     vec3 C = uJupDir * uJupD + t1 * gd.x + t2 * gd.y - uJupDir * gd.z;
@@ -568,6 +568,11 @@ void main() {
                     vec3 cc = cross(rd, C);
                     float pp = dot(cc, cc);
                     float rr = gd.w * gd.w;
+                    float lc = length(C);
+                    // far away: a steady point of fixed size (like Jupiter's moons through binoculars), never a sparkle
+                    const float galMinR = 0.0012;
+                    if (b > 0.0 && gd.w / lc < galMinR && lc * JUP_RKM < tHit)
+                        bg += galColor(i) * uSunI * 0.35 * smoothstep(galMinR, galMinR * 0.25, sqrt(pp) / lc);
                     if (b > 0.0 && pp < rr) {
                         float tg = b - sqrt(rr - pp);
                         if (tg * JUP_RKM < tHit) {

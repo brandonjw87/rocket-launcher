@@ -1,0 +1,30 @@
+Build a better rocket, press LAUNCH and watch it fly itself from the launch pad to the Moon, Mars and all the way to Jupiter.
+
+Rocket Launcher is a relaxing rocket upgrade game. You don't steer: the autopilot flies every launch. Your job is engineering. Research upgrades in a big tech tree and every flight goes higher, faster and further than the last.
+
+ONE GIANT MISSION
+• Reach space at the Kármán line, then orbital altitude
+• Fly past the Moon
+• Escape Earth and head for Mars, then go into Mars orbit and land on Mars
+• Fly past Mars, cross the asteroid belt and reach Jupiter
+• Go into orbit around Jupiter and land on its icy moon Europa
+Real distances: the Moon is 384,400 km away, Mars 55 million km and Jupiter 588 million km. Time warp keeps every flight to a couple of minutes.
+
+80 UPGRADES OVER 12 TIERS
+Propulsion, structures, staging, aerodynamics, avionics and thermal protection. Go from a little solid motor to clusters of 9, 13, 20 and finally 33 methalox engines, add strap-on boosters and liquid side cores, stack up to six stages, and fit nuclear and fusion-plasma upper stages for the long trip out to Jupiter. Plan ahead: Mars needs a heat shield and a parachute, Jupiter needs a radiation vault, and Europa needs a lander.
+
+WATCH YOUR ROCKET CHANGE
+Every upgrade shows on the rocket: shiny aluminium, carbon fibre, orange foam and stainless steel skins, grid fins, antennas and dishes, landing legs, solar wings that unfold in space, a gold-foil radiation vault, a sky-crane lander and much more. The exhaust changes too: white solid-motor smoke, orange kerosene with sooty trails, blue methalox flames with shock diamonds, a pale-blue nuclear jet and a violet fusion-plasma beam.
+
+A SMART AUTOPILOT
+Birds, planes, weather balloons, meteors, satellites, space debris and the asteroid belt all get in the way. Radar, guidance computers and an onboard AI let the autopilot see hazards earlier, fins, gimbals and thrusters let it dodge harder, and a tougher hull lets it shrug off hits. The navigation computer can even cut the engines once you're on course, saving fuel for the landing.
+
+BEAUTIFUL 3D
+A real-time 3D launch pad, clouds you fly through, a curved Earth below, a starry sky, the Moon, Mars and banded Jupiter with its moons. Low, Medium and High graphics settings.
+
+FAIR AND FRIENDLY
+• Free, with no ads and no in-app purchases
+• Works offline: no internet connection or account needed
+• Collects no data at all
+• Your progress saves automatically and carries over to every update
+• Mute button on every screen
