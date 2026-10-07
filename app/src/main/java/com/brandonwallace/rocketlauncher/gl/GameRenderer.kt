@@ -129,8 +129,14 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
         const val NEAR = 0.3f; const val NEAR_FAR = 1500f; const val FAR_NEAR = 1200f; const val FAR_FAR = 80000f
         const val R_KM = 6371.0
         const val EARTH_VIEW_MAX_KM = 1.5e6
-        /** How far to the side of the flight path Mars passes on Jupiter flights (~25 Mars radii). */
+        /** How far to the side of the flight path Mars passes on Jupiter and Saturn flights (~25 Mars radii). */
         const val MARS_FLYBY_KM = 85_000.0
+        /** How far to the side Jupiter passes on Saturn flights: a close slingshot (~8.6 Jupiter radii). */
+        const val JUPITER_FLYBY_KM = 600_000.0
+        /** Saturn's equatorial radius (km): the shader works in these units. */
+        const val SATURN_EQ_KM = 60_268.0
+        /** Saturn's pole (= ring-plane normal), fixed in the sky: the rings are seen ~22 degrees open on arrival. */
+        private val RING_N = floatArrayOf(0.35f, -0.40f, 0.85f).also { val l = sqrt(it[0] * it[0] + it[1] * it[1] + it[2] * it[2]); for (i in 0..2) it[i] /= l }
         fun smooth(e0: Float, e1: Float, x: Float): Float { val t = ((x - e0) / (e1 - e0)).coerceIn(0f, 1f); return t * t * (3 - 2 * t) }
     }
 
@@ -234,7 +240,7 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
         val pdt = if (sPaused) 0f else dt
         animTime += pdt
         handleFx(rk)
-        // solar wings unfold once the rocket is in space (and fold back for the hangar)
+        // solar wings and sails unfold once the rocket is in space (and fold back for the hangar)
         val wingsOut = (sPhase == Phase.FLIGHT || sPhase == Phase.RESULTS) && sAlt > 140_000.0 && !sExploded
         deploy += ((if (wingsOut) 1f else 0f) - deploy) * (1f - exp(-pdt * 0.9f))
         if (sPhase != Phase.FLIGHT && sPhase != Phase.RESULTS) deploy = 0f
@@ -518,6 +524,7 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
         p.f3("uMoonPos", tmp3); p.f("uMoonR", moonR(tmp3))
         setMarsUniforms(p)
         setJupiterUniforms(p)
+        setSaturnUniforms(p)
         p.f("uTime", (animTime % 1000f)); p.f("uDeckKm", (World.DECK_ALT / 1000.0).toFloat()); p.f("uOutScale", pipe.outScale)
         p.f2("uPadKm", (-camX / 1000.0).toFloat(), (-camZ / 1000.0).toFloat())
         pipe.drawQuad()
@@ -556,14 +563,39 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
         p.f3("uMarsDir", marsDir); p.f("uMarsD", d.toFloat())
     }
 
-    /** Jupiter direction + distance (in Jupiter radii) on Jupiter flights; drifts to the zenith on approach like Mars. */
+    /**
+     * Jupiter direction + distance (in Jupiter radii). Jupiter flights: it drifts to the zenith on approach like Mars.
+     * Saturn flights: it sits beside the path and sweeps past close by during the slingshot.
+     */
     private fun setJupiterUniforms(p: ShaderProgram) {
-        val show = (sPhase == Phase.FLIGHT || sPhase == Phase.RESULTS) && sTarget == MissionTarget.JUPITER
+        val show = (sPhase == Phase.FLIGHT || sPhase == Phase.RESULTS) && sTarget != MissionTarget.MARS
         if (!show) { p.f3("uJupDir", 0f, 1f, 0f); p.f("uJupD", 0f); return }
+        if (sTarget == MissionTarget.SATURN) {
+            val rx = JUPITER_FLYBY_KM * 0.406 - camX / 1000.0
+            val ry = (Physics.JUPITER_ARRIVAL_ALT + Physics.JUPITER_RADIUS - camY) / 1000.0
+            val rz = -JUPITER_FLYBY_KM * 0.914 - camZ / 1000.0
+            val d = sqrt(rx * rx + ry * ry + rz * rz)
+            jupDir[0] = (rx / d).toFloat(); jupDir[1] = (ry / d).toFloat(); jupDir[2] = (rz / d).toFloat()
+            p.f3("uJupDir", jupDir); p.f("uJupD", (d / (Physics.JUPITER_RADIUS / 1000.0)).coerceAtLeast(1.015).toFloat())
+            return
+        }
         val distKm = Physics.JUPITER_CENTER_DIST / 1000.0 - (R_KM + camY / 1000.0)
         val d = (distKm / (Physics.JUPITER_RADIUS / 1000.0)).coerceAtLeast(1.015)
         jupiterDirection(jupDir)
         p.f3("uJupDir", jupDir); p.f("uJupD", d.toFloat())
+    }
+
+    private val satDir = FloatArray(3)
+
+    /** Saturn direction + distance (in equatorial radii) and ring normal on Saturn flights; drifts to the zenith on approach. */
+    private fun setSaturnUniforms(p: ShaderProgram) {
+        p.f3("uRingN", RING_N)
+        val show = (sPhase == Phase.FLIGHT || sPhase == Phase.RESULTS) && sTarget == MissionTarget.SATURN
+        if (!show) { p.f3("uSatDir", 0f, 1f, 0f); p.f("uSatD", 0f); return }
+        val distKm = Physics.SATURN_CENTER_DIST / 1000.0 - (R_KM + camY / 1000.0)
+        val d = (distKm / SATURN_EQ_KM).coerceAtLeast(1.02)
+        saturnDirection(satDir)
+        p.f3("uSatDir", satDir); p.f("uSatD", d.toFloat())
     }
 
     private fun jupiterDirection(out: FloatArray) {
@@ -615,6 +647,7 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
         moonPos(tmp3); p.f3("uMoonPos", tmp3); p.f("uMoonR", moonR(tmp3))
         setMarsUniforms(p)
         setJupiterUniforms(p)
+        setSaturnUniforms(p)
         p.f("uVis", vis); p.f("uOutScale", pipe.outScale)
         GLES30.glBindVertexArray(starVao)
         GLES30.glDrawArrays(GLES30.GL_POINTS, 0, starCount)
@@ -699,6 +732,12 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
             g == RocketModel.ARRAYS -> {
                 Mat.trs(m2, 0f, -rk.stageBase[st], 0f, pre = rocketM); Mat.mul(m4, m2, p.local)
                 Mat.trs(m, 0f, 0f, 0f, rz = -90f * (1f - deploy), pre = m4)
+            }
+            g == RocketModel.SPREAD -> {
+                // sails / tethers / loops: tucked inside the body on the pad, opening out sideways in space
+                Mat.trs(m2, 0f, -rk.stageBase[st], 0f, pre = rocketM); Mat.mul(m4, m2, p.local)
+                val sc = 0.08f + 0.92f * deploy
+                Mat.trs(m, 0f, 0f, 0f, sc, 1f, sc, pre = m4)
             }
             g < 0 -> { Mat.trs(m2, 0f, -rk.stageBase[st], 0f, pre = rocketM); Mat.mul(m, m2, p.local) }
             else -> Mat.trs(m, 0f, rk.stageBase[g] - rk.stageBase[st], 0f, pre = rocketM)
@@ -893,7 +932,7 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
             if (local != null) Mat.mul(m2, rocketM, local) else System.arraycopy(rocketM, 0, m2, 0, 16)
             Mat.trs(m, nx, 0f, nz, pre = m2)
             p.m4("uModel", m)
-            p.f("uLen", len); p.f("uRad", r * 0.95f * ex.width); p.f("uExpand", (0.15f + 3.2f * vac) * ex.width)
+            p.f("uLen", len); p.f("uRad", r * 0.95f * ex.width); p.f("uExpand", (0.15f + 3.2f * vac * (1f + (ex.vacSpread - 1f) * vac)) * ex.width)
             // mach diamonds only in air; magnetically confined plasma shows its striations everywhere
             p.f("uDiamonds", if (a > 0.25f || ex.striations) ex.diamonds else 0f)
             p.f3("uDiaCol", ex.diamondCol)

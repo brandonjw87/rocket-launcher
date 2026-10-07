@@ -7,7 +7,9 @@ import com.brandonwallace.rocketlauncher.game.Stat
  * How one engine's exhaust looks. Every propulsion upgrade changes it: solid motors burn white-orange with thick
  * smoke, kerosene engines yellow-orange with soot (and a dark turbine-exhaust trail on the gas-generator cycle),
  * staged combustion cleaner with mach diamonds, methalox blue-violet with almost no smoke, nuclear upper stages
- * a long pale-blue jet and the fusion drives a collimated violet plasma beam.
+ * a long pale-blue jet and the fusion drives a collimated violet plasma beam. 1.3 (Saturn program): rotating
+ * detonation engines ripple with detonation rings, the aerospike keeps a tight plume even in vacuum, beamed
+ * energy burns white-hot, direct fusion glows pink-white and antimatter drives shine as a blinding white beam.
  * Colours are linear HDR (the composite pass tone-maps them).
  */
 class ExhaustStyle(
@@ -28,8 +30,10 @@ class ExhaustStyle(
     val glow: FloatArray,
     /** Point-light colour the flame throws on the rocket and pad. */
     val light: FloatArray,
-    /** Diamond-like striations that also show in vacuum (magnetically confined plasma). */
+    /** Diamond-like striations that also show in vacuum (magnetically confined plasma, detonation rings). */
     val striations: Boolean = false,
+    /** How much the plume balloons out in vacuum (1 = normal; an aerospike stays tight). */
+    val vacSpread: Float = 1f,
 )
 
 object Exhaust {
@@ -55,15 +59,30 @@ object Exhaust {
     val PLASMA = ExhaustStyle("Fusion plasma", c(6.5f, 3.2f, 9.5f), c(2.6f, 0.5f, 4.4f), 1.7f, 0.72f, 1.0f, c(1f, 0.6f, 1f),
         0f, c(0.95f, 0.9f, 1f), c(2.2f, 0.9f, 3.2f), 0f, c(0.65f, 0.25f, 1f), c(0.8f, 0.45f, 1f), striations = true)
 
+    // 1.3
+    val DETONATION = ExhaustStyle("Rotating detonation", c(7.4f, 8.0f, 11.5f), c(2.4f, 1.6f, 4.6f), 1.25f, 1f, 2.6f, c(0.9f, 0.95f, 1f),
+        6f, c(0.95f, 0.96f, 0.98f), c(1.8f, 1.6f, 3.0f), 0f, c(1f, 0.5f, 0.45f), c(0.8f, 0.75f, 1f), striations = true)
+    val DIRECT_FUSION = ExhaustStyle("Direct fusion", c(9.0f, 6.0f, 9.0f), c(4.0f, 1.2f, 3.0f), 1.9f, 0.62f, 1.2f, c(1f, 0.7f, 0.95f),
+        0f, c(0.95f, 0.9f, 1f), c(2.8f, 1.4f, 2.6f), 0f, c(1f, 0.35f, 0.75f), c(1f, 0.55f, 0.9f), striations = true)
+    val ANTIMATTER = ExhaustStyle("Antimatter-catalyzed", c(9.5f, 10.5f, 13.5f), c(2.4f, 2.8f, 6.0f), 2.2f, 0.5f, 1.0f, c(0.9f, 0.95f, 1f),
+        0f, c(0.95f, 0.96f, 1f), c(2.6f, 2.9f, 4.0f), 0f, c(0.75f, 0.85f, 1f), c(0.85f, 0.9f, 1f), striations = true)
+
     private fun tuned(s: ExhaustStyle, name: String = s.name, coreMul: Float = 1f, length: Float = s.length, diamonds: Float = s.diamonds,
-                      smokeMul: Float = 1f, soot: Float = s.soot, width: Float = s.width, core: FloatArray? = null, outer: FloatArray? = null) =
+                      smokeMul: Float = 1f, soot: Float = s.soot, width: Float = s.width, core: FloatArray? = null, outer: FloatArray? = null,
+                      vacSpread: Float = s.vacSpread) =
         ExhaustStyle(name, (core ?: s.core).let { c(it[0] * coreMul, it[1] * coreMul, it[2] * coreMul) }, outer ?: s.outer, length, width,
-            diamonds, s.diamondCol, s.smoke * smokeMul, s.smokeCol, s.flame, soot, s.glow, s.light, s.striations)
+            diamonds, s.diamondCol, s.smoke * smokeMul, s.smokeCol, s.flame, soot, s.glow, s.light, s.striations, vacSpread)
 
     /** First stage (and liquid side cores). */
     fun firstStage(spec: RocketSpec): ExhaustStyle {
         val regen = spec.level(Stat.REGEN) > 0
         val base = when {
+            spec.has("P_BEAMED") -> tuned(DETONATION, "Laser-heated aerospike", length = 1.6f, diamonds = 3.0f, core = c(11f, 11f, 12.5f), outer = c(3.2f, 2.4f, 4.4f), vacSpread = 0.35f)
+            spec.has("P_SPIKE") -> tuned(DETONATION, if (spec.has("P_RDE60")) "Mega detonation aerospike" else "Detonation aerospike", length = 1.45f, vacSpread = 0.35f)
+            spec.has("P_RDE42") -> tuned(DETONATION, "Detonation cluster", length = 1.35f, diamonds = 2.9f)
+            spec.has("P_RDE") -> DETONATION
+            spec.has("P_TRIPROP") -> tuned(METHALOX, "Tripropellant", length = 1.42f, diamonds = 2.3f, core = c(7.6f, 8.2f, 11.0f), outer = c(3.4f, 1.6f, 3.4f))
+            spec.has("P_MK4") -> tuned(METHALOX, "Methalox Mk IV", length = 1.38f, diamonds = 2.1f, core = c(6.8f, 7.4f, 11.0f), outer = c(3.8f, 1.3f, 3.0f))
             spec.has("P_SUPER33") -> tuned(METHALOX, "Methalox super booster", length = 1.4f, diamonds = 2.2f, core = c(6.4f, 7.0f, 10.5f), outer = c(4.0f, 1.3f, 3.0f))
             spec.has("P_RAPTOR3") -> tuned(METHALOX, "Methalox Mk III", length = 1.3f, diamonds = 1.9f, core = c(5.8f, 6.4f, 9.8f))
             spec.has("P_RAPTOR2") -> tuned(METHALOX, "Methalox cluster", length = 1.2f, core = c(5.6f, 6.0f, 9.0f))
@@ -78,7 +97,7 @@ object Exhaust {
             else -> SOLID
         }
         // regenerative cooling: a hotter, cleaner burn; every engine level adds length
-        val lv = spec.level(Stat.ENGINE)
+        val lv = spec.level(Stat.ENGINE).coerceAtMost(10)
         return tuned(base, coreMul = if (regen) 1.08f else 1f, smokeMul = if (regen) 0.85f else 1f, length = base.length * (1f + 0.03f * lv))
     }
 
@@ -90,7 +109,11 @@ object Exhaust {
             1 -> NUCLEAR
             2 -> tuned(NUCLEAR, "Bimodal nuclear", length = 1.5f, core = c(7.0f, 8.0f, 9.5f))
             3 -> PLASMA
-            else -> tuned(PLASMA, "Fusion torch", length = 2.0f, diamonds = 1.4f, width = 0.68f, core = c(8.0f, 6.0f, 11f), outer = c(3.2f, 1.2f, 5.5f))
+            4 -> tuned(PLASMA, "Fusion torch", length = 2.0f, diamonds = 1.4f, width = 0.68f, core = c(8.0f, 6.0f, 11f), outer = c(3.2f, 1.2f, 5.5f))
+            5 -> DIRECT_FUSION
+            6 -> tuned(DIRECT_FUSION, "Twin-reactor fusion", length = 2.1f, core = c(10.5f, 7.5f, 10.5f))
+            7 -> ANTIMATTER
+            else -> tuned(ANTIMATTER, "Antimatter beam", length = 2.8f, width = 0.38f, diamonds = 0.6f, core = c(13f, 13f, 15f), outer = c(3.0f, 3.5f, 7.0f))
         }
         // bigger vacuum bells: a wider, fuller plume (the plasma beam stays collimated by its magnetic nozzle)
         val widen = if (spec.level(Stat.NUCLEAR) >= 3) 1f else 1f + 0.12f * vac

@@ -61,6 +61,8 @@ class Mesh(verts: FloatArray, idx: IntArray) {
     private val vao = IntArray(1); private val bufs = IntArray(2)
     val count = idx.size
     val vertexCount = verts.size / STRIDE
+    /** Cheap fingerprint of the geometry and colours (tests use it to prove every upgrade changes the rocket). */
+    val checksum: Double = run { var s = 0.0; for (i in verts.indices) s += verts[i] * (1 + i % 7); s }
 
     companion object {
         const val STRIDE = 11

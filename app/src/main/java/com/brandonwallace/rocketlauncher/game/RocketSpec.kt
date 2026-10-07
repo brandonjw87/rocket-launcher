@@ -50,7 +50,7 @@ class RocketSpec(val tech: Set<String>) {
          * Cruise propulsion (sail, ion engines, electric/magnetic sail, lightsail): a steady outward push (m/s²)
          * past Earth's pull, per CRUISE level. Always weaker than the Sun's pull, so every coast still ends.
          */
-        val CRUISE_ACCEL = doubleArrayOf(0.0, 2.0e-5, 4.0e-5, 6.0e-5, 8.0e-5, 1.0e-4)
+        val CRUISE_ACCEL = doubleArrayOf(0.0, 4.0e-5, 8.0e-5, 1.2e-4, 1.6e-4, 2.0e-4)
         /** Ring-ice damage multiplier per RINGS level (the first level is the ring-plane shield itself). */
         val ICE_DAMAGE = doubleArrayOf(1.0, 1.0, 0.6, 0.35)
         /** Saturn orbit insertion fuel (fraction of last stage) per AEROCAP level: 6%, aerocapture shield 4%, ballute 2%, Titan assist 1%. */

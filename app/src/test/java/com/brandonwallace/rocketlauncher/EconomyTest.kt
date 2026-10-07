@@ -574,7 +574,7 @@ class ProgressionTest {
         val cr = simulateAutopilot(RocketSpec(bare + "P_SAIL" + "P_IONCRUISE"), MissionTarget.SATURN)
         println("bare=${b.maxAlt} +slingshot=${sl.maxAlt} +cruise=${cr.maxAlt}")
         assertTrue(sl.slingshot && sl.maxAlt > b.maxAlt * 1.02)
-        assertTrue(cr.maxAlt > b.maxAlt * 1.01)
+        assertTrue(cr.maxAlt > b.maxAlt * 1.015)
         // and Mars / Jupiter flights never get the slingshot
         assertFalse(simulateAutopilot(RocketSpec(all), MissionTarget.JUPITER).slingshot)
     }

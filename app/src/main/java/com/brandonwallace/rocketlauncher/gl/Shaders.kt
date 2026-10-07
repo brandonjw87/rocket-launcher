@@ -77,7 +77,7 @@ in vec3 vWPos; in vec3 vN; in vec3 vCol; in vec2 vMat; in vec3 vObj; in vec4 vSh
 out vec4 oColor;
 uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uSkyAmb; uniform vec3 uGroundAmb; uniform vec3 uHorizon;
 uniform vec3 uTint; uniform vec3 uEmissive; uniform float uRoughMul; uniform float uAlpha;
-uniform int uMatType;          // 0 plain,1 painted/alu body,2 carbon,3 foam,4 stainless,5 tiles,6 terrain,7 engine,8 metal,9 pad,10 gold foil
+uniform int uMatType;          // 0 plain,1 painted/alu body,2 carbon,3 foam,4 stainless,5 tiles,6 terrain,7 engine,8 metal,9 pad,10 gold foil,11 nanotube
 uniform vec4 uPanel;           // ring spacing, seam count, extra, paint pattern
 uniform sampler2D uDecalTex; uniform vec4 uDecalA; uniform vec4 uDecalB;
 uniform sampler2DShadow uShadowMap; uniform float uShadowOn; uniform float uShadowTexel; uniform int uShadowTaps;
@@ -131,7 +131,7 @@ void main() {
     float alpha = uAlpha;
     vec3 wp = vWPos + uCamWorld;
 
-    if (uMatType >= 1 && uMatType <= 5) {
+    if ((uMatType >= 1 && uMatType <= 5) || uMatType == 11) {
         float ang = atan(vObj.z, vObj.x);
         float rad = length(vObj.xz);
         float arc = ang * rad;
@@ -161,6 +161,12 @@ void main() {
             albedo = vec3(0.74, 0.75, 0.78);
             metal = 1.0;
             rough = (0.16 + 0.14 * streak) * uRoughMul;
+        } else if (uMatType == 11) {
+            // filament-wound nanotube / nanocomposite skin: crossing helical windings with a satin sheen
+            float w = max(lineAA(arc + y * 0.7, 0.11, 0.012), lineAA(arc - y * 0.7, 0.11, 0.012));
+            albedo *= 1.0 + 0.45 * w;
+            metal = 0.55;
+            rough = (0.3 + 0.12 * w) * uRoughMul;
         } else if (uMatType == 5) {
             vec2 tc = vec2(arc, y) / 0.16;
             vec2 f = abs(fract(tc) - 0.5);
@@ -379,6 +385,8 @@ uniform mat4 uInvVP; uniform sampler2D uLut;
 uniform vec3 uSun; uniform float uSunI; uniform vec3 uMoonPos; uniform float uMoonR;
 uniform vec3 uMarsDir; uniform float uMarsD;   // Mars: unit direction + centre distance in Mars radii (0 = hidden)
 uniform vec3 uJupDir; uniform float uJupD;     // Jupiter: unit direction + centre distance in Jupiter radii (0 = hidden)
+uniform vec3 uSatDir; uniform float uSatD;     // Saturn: unit direction + centre distance in equatorial radii (0 = hidden)
+uniform vec3 uRingN;                           // Saturn's pole = the ring-plane normal
 uniform float uTime; uniform float uDeckKm; uniform float uOutScale; uniform vec2 uPadKm;
 // Galilean moons around Jupiter, in Jupiter radii (basis: t1, t2, toward the viewer) and their radii
 const vec4 GAL0 = vec4(5.2, 0.4, 2.8, 0.026);      // Io
@@ -387,6 +395,34 @@ const vec4 GAL2 = vec4(12.5, 1.0, -8.0, 0.0376);   // Ganymede
 const vec4 GAL3 = vec4(-22.0, 1.5, 14.0, 0.0345);  // Callisto
 vec3 galColor(int i) { return i == 0 ? vec3(0.85, 0.75, 0.35) : i == 1 ? vec3(0.86, 0.82, 0.74) : i == 2 ? vec3(0.55, 0.5, 0.45) : vec3(0.36, 0.32, 0.28); }
 vec4 galData(int i) { return i == 0 ? GAL0 : i == 1 ? GAL1 : i == 2 ? GAL2 : GAL3; }
+// Saturn's moons: distance from Saturn in equatorial radii, angle in the ring plane, radius, height above the plane
+const vec4 SM0 = vec4(20.27, 0.6, 0.0427, 0.0);    // Titan
+const vec4 SM1 = vec4(8.74, 2.1, 0.0127, 0.0);     // Rhea
+const vec4 SM2 = vec4(59.1, -1.0, 0.0122, 8.0);    // Iapetus (inclined orbit)
+const vec4 SM3 = vec4(6.26, 3.5, 0.0093, 0.0);     // Dione
+const vec4 SM4 = vec4(4.89, -2.2, 0.0088, 0.0);    // Tethys
+const vec4 SM5 = vec4(3.95, 1.2, 0.0042, 0.0);     // Enceladus
+vec4 satMoon(int i) { return i == 0 ? SM0 : i == 1 ? SM1 : i == 2 ? SM2 : i == 3 ? SM3 : i == 4 ? SM4 : SM5; }
+vec3 satMoonColor(int i) { return i == 0 ? vec3(0.86, 0.56, 0.24) : i == 2 ? vec3(0.62, 0.58, 0.52) : i == 5 ? vec3(1.0, 1.0, 1.0) : vec3(0.82, 0.8, 0.77); }
+/** Saturn's rings: opacity by distance from the centre (equatorial radii): D, C, B, Cassini division, A + Encke gap, F. */
+float ringOpacity(float rho, float fw) {
+    if (rho < 1.11 || rho > 2.34) return 0.0;
+    float o = 0.08 * smoothstep(1.11, 1.13, rho) * (1.0 - smoothstep(1.225, 1.239, rho));
+    o += 0.3 * smoothstep(1.236, 1.25, rho) * (1.0 - smoothstep(1.51, 1.527, rho));
+    o += 0.92 * smoothstep(1.524, 1.545, rho) * (1.0 - smoothstep(1.94, 1.951, rho));
+    o += 0.06 * smoothstep(1.951, 1.96, rho) * (1.0 - smoothstep(2.02, 2.027, rho));
+    o += 0.62 * smoothstep(2.025, 2.035, rho) * (1.0 - smoothstep(2.262, 2.269, rho));
+    o *= 1.0 - 0.9 * (1.0 - smoothstep(0.0, 0.006, abs(rho - 2.214)));
+    o += 0.5 * (1.0 - smoothstep(0.0, 0.005, abs(rho - 2.326)));
+    // fine ringlets, faded out where a pixel spans many of them (no shimmering)
+    float fine = 0.78 + 0.22 * sin(rho * 220.0) * sin(rho * 57.0 + 1.3) + 0.15 * (vnoise2(vec2(rho * 300.0, 0.5)) - 0.5);
+    fine = mix(fine, 0.82, smoothstep(0.002, 0.02, fw));
+    return clamp(o * fine, 0.0, 1.0);
+}
+vec3 ringColor(float rho) {
+    vec3 c = mix(vec3(0.45, 0.42, 0.38), vec3(0.86, 0.79, 0.66), smoothstep(1.5, 1.56, rho));
+    return mix(c, vec3(0.76, 0.73, 0.68), smoothstep(1.95, 2.03, rho));
+}
 vec3 cloudColor(float cov) { return vec3(1.0) * (0.75 + 0.25 * cov); }
 float cloudCover(vec3 n, float distKm) {
     float big = fbm3(n * 9.0, 4);
@@ -587,6 +623,114 @@ void main() {
                 }
             }
         }
+        // Saturn: an oblate, softly banded globe with the north-polar hexagon, the ring system with shadows both
+        // ways, and six moons (orange hazy Titan, Rhea, two-tone Iapetus, Dione, Tethys, bright Enceladus).
+        // All maths in equatorial radii with cancellation-free ray tests, so it stays exact 1.2 billion km out.
+        if (uSatD > 0.0) {
+            const float SAT_RKM = 60268.0;
+            const float STRETCH = 1.1086;          // equatorial / polar radius
+            vec3 n = uRingN;
+            vec3 C = uSatDir * uSatD;
+            vec3 sl = bodyLight(uSatDir);          // sunlight direction in the Saturn system
+            float ca = dot(rd, uSatDir);
+            vec3 rds = rd + n * (dot(rd, n) * (STRETCH - 1.0));
+            vec3 Cs = C + n * (dot(C, n) * (STRETCH - 1.0));
+            vec3 crs = cross(rds, Cs);
+            float a2 = dot(rds, rds);
+            float disc = a2 - dot(crs, crs);
+            float tP = 1e30;
+            vec3 col = bg;
+            float angR = 1.0 / uSatD;
+            const float satMinR = 0.0016;
+            if (ca > 0.0 && disc > 0.0) {
+                tP = (dot(rds, Cs) - sqrt(disc)) / a2;
+                if (tP * SAT_RKM < tHit) {
+                    vec3 H = rd * tP - C;                                  // hit point relative to the centre
+                    vec3 hs = H + n * (dot(H, n) * (STRETCH - 1.0));
+                    vec3 gn = normalize(hs + n * (dot(hs, n) * (STRETCH - 1.0)));   // spheroid normal
+                    float lat = dot(normalize(hs), n);
+                    vec3 t1 = normalize(cross(n, uSatDir)); vec3 t2 = cross(n, t1);
+                    float lon = atan(dot(hs, t2), dot(hs, t1));
+                    float turb = fbm3(normalize(hs) * 4.0, 4);
+                    float band = sin(lat * 26.0 + turb * 1.6 + sin(lat * 9.0) * 0.8);
+                    vec3 alb = mix(vec3(0.87, 0.79, 0.59), vec3(0.74, 0.62, 0.42), smoothstep(-0.3, 0.7, band));
+                    alb = mix(alb, vec3(0.58, 0.48, 0.34), smoothstep(0.85, 0.99, band) * 0.4);
+                    alb *= 0.9 + 0.2 * fbm3(vec3(lat * 60.0, lon * 3.0, turb), 3);
+                    // the north-polar hexagon (a blue-grey six-sided jet stream)
+                    float pr = sqrt(max(0.0, 1.0 - lat * lat));
+                    float hexR = 0.22 / cos(mod(lon + 3.0 * PI, PI / 3.0) - PI / 6.0);
+                    alb = mix(alb, vec3(0.5, 0.58, 0.68), (1.0 - smoothstep(hexR * 0.9, hexR, pr)) * step(0.0, lat) * 0.8);
+                    float nl = max(dot(gn, sl), 0.0);
+                    float view = max(dot(gn, -rd), 0.0);
+                    vec3 c = alb / PI * uSunI * 0.5 * nl * (0.72 + 0.28 * view);
+                    // the rings cast their shadow on the globe
+                    float sn = dot(sl, n);
+                    if (abs(sn) > 1e-3) {
+                        float ts = -dot(H, n) / sn;
+                        if (ts > 0.0) c *= 1.0 - 0.85 * ringOpacity(length(H + sl * ts), 0.0);
+                    }
+                    col = c;
+                    tHit = tP * SAT_RKM;
+                }
+            } else if (ca > 0.0 && angR < satMinR) {
+                // far away: a steady pale-gold point of fixed size
+                float s2 = dot(cross(rd, uSatDir), cross(rd, uSatDir));
+                col += vec3(1.0, 0.88, 0.6) * uSunI * 0.9 * smoothstep(satMinR, satMinR * 0.25, sqrt(s2)) * smoothstep(40.0, 90.0, uAltKm);
+            }
+            // rings (translucent, in front of whatever is behind them)
+            float dn = dot(rd, n);
+            if (abs(dn) > 1e-6 && angR * 2.4 > satMinR * 0.5) {
+                float tR = dot(C, n) / dn;
+                if (tR > 0.0 && tR * SAT_RKM < tHit) {
+                    vec3 Q = rd * tR - C;
+                    float rho = length(Q);
+                    float op = ringOpacity(rho, fwidth(rho));
+                    if (op > 0.0) {
+                        // in Saturn's shadow?
+                        float qs = dot(Q, sl);
+                        float shadow = (qs < 0.0 && length(Q - sl * qs) < 0.95) ? 0.12 : 1.0;
+                        // lit face or the unlit face (seen through)
+                        float sameSide = sign(dot(sl, n)) * sign(-dn);
+                        float lit = sameSide > 0.0 ? 1.0 : 0.35;
+                        vec3 rc = ringColor(rho) / PI * uSunI * 0.55 * lit * shadow * (0.35 + 0.65 * abs(dot(sl, n)) + 0.25);
+                        col = mix(col, rc, op);
+                    }
+                }
+            }
+            bg = col;
+            // moons
+            if (uSatD < 3000.0) {
+                vec3 u1 = normalize(cross(n, uSatDir)); vec3 u2 = cross(n, u1);
+                for (int i = 0; i < 6; i++) {
+                    vec4 md = satMoon(i);
+                    vec3 Cm = C + (u1 * cos(md.y) + u2 * sin(md.y)) * md.x + n * md.w;
+                    float b = dot(rd, Cm);
+                    vec3 cc = cross(rd, Cm);
+                    float pp = dot(cc, cc);
+                    float rr = md.z * md.z;
+                    float lc = length(Cm);
+                    const float smMinR = 0.0012;
+                    if (b > 0.0 && md.z / lc < smMinR && lc * SAT_RKM < tHit)
+                        bg += satMoonColor(i) * uSunI * 0.3 * smoothstep(smMinR, smMinR * 0.25, sqrt(pp) / lc);
+                    if (b > 0.0 && pp < rr) {
+                        float tg = b - sqrt(rr - pp);
+                        if (tg * SAT_RKM < tHit) {
+                            vec3 mn = normalize(rd * tg - Cm);
+                            vec3 alb = satMoonColor(i) * (0.8 + 0.4 * fbm3(mn * 5.0 + float(i) * 3.0, 3));
+                            if (i == 2) alb *= mix(0.18, 1.0, smoothstep(-0.1, 0.1, dot(mn, u1)));     // Iapetus: dark leading half
+                            if (i == 5) alb = mix(alb, vec3(0.55, 0.8, 1.0), smoothstep(0.62, 0.66, fbm3(mn * 8.0, 3)) * smoothstep(0.3, -0.6, dot(mn, n)));   // Enceladus' blue "tiger stripes"
+                            float hz = i == 0 ? pow(1.0 - max(dot(mn, -rd), 0.0), 2.0) : 0.0;          // Titan's orange haze limb
+                            bg = alb / PI * uSunI * 0.5 * max(dot(mn, bodyLight(normalize(Cm))), 0.0) + vec3(0.9, 0.5, 0.15) * uSunI * 0.03 * hz;
+                            tHit = tg * SAT_RKM;
+                        }
+                    } else if (i == 0 && b > 0.0 && pp < rr * 1.25) {
+                        // Titan's thick atmosphere glows just outside its limb
+                        float ex = (sqrt(pp) - md.z) / (md.z * 0.12);
+                        bg += vec3(0.95, 0.55, 0.2) * uSunI * 0.025 * (1.0 - clamp(ex, 0.0, 1.0));
+                    }
+                }
+            }
+        }
     }
     // cloud deck shell (seen from below as overcast patches, from above as a sea of clouds)
     float Rd = uRkm + uDeckKm;
@@ -618,6 +762,7 @@ uniform mat4 uVP; uniform float uRkm; uniform float uC0; uniform float uAltKm; u
 uniform vec3 uMoonPos; uniform float uMoonR;
 uniform vec3 uMarsDir; uniform float uMarsD;
 uniform vec3 uJupDir; uniform float uJupD;
+uniform vec3 uSatDir; uniform float uSatD;
 out vec3 vC;
 void main() {
     vec3 d = normalize(aDir);
@@ -629,6 +774,8 @@ void main() {
     if (uMarsD > 0.0 && dot(d, uMarsDir) > 0.0 && dot(mc, mc) * uMarsD * uMarsD < 1.1) hidden = true;
     vec3 jc = cross(d, uJupDir);
     if (uJupD > 0.0 && dot(d, uJupDir) > 0.0 && dot(jc, jc) * uJupD * uJupD < 1.1) hidden = true;
+    vec3 sc = cross(d, uSatDir);
+    if (uSatD > 0.0 && dot(d, uSatDir) > 0.0 && dot(sc, sc) * uSatD * uSatD < 1.1) hidden = true;
     gl_Position = uVP * vec4(d, 1.0);
     gl_Position.z = gl_Position.w * 0.9999;
     gl_PointSize = hidden ? 0.0 : uPx * (1.2 + 1.6 * aMag.x);

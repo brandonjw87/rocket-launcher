@@ -510,6 +510,46 @@ class SmokeTest {
         assertTrue(counts.zipWithNext().all { (x, y) -> y > x })
     }
 
+    @Test fun everySaturnUpgradeChangesTheRocket() {
+        fun sig(m: RocketModel) = m.parts.joinToString(";") {
+            "${it.group},${it.mat},${it.mesh.vertexCount},${it.mesh.count},${Math.round(it.mesh.checksum * 100)},${it.roughMul},${it.panel.toList()},${it.emissive?.toList()},${it.engine}"
+        } + "|${m.totalLength}|${m.nozzles.map { it.size }}|${m.boosterOffsets.size}"
+        val owned = LinkedHashSet(TechTree.nodes.filter { !it.saturnProgram }.map { it.id })
+        var prev = sig(RocketModel(RocketSpec(owned), 24))
+        val unchanged = ArrayList<String>()
+        for (n in TechTree.nodes.filter { it.saturnProgram }.sortedBy { it.tier * 100 + it.row }) {
+            owned += n.id   // tier order keeps every prerequisite owned
+            val now = sig(RocketModel(RocketSpec(owned), 24))
+            if (now == prev) unchanged += n.id
+            prev = now
+        }
+        assertTrue("every Saturn upgrade changes the rocket's look, these did not: $unchanged", unchanged.isEmpty())
+        // the full 1.3 rocket: 60 detonation engines round an aerospike, 8 stages, 6 side cores, deployables, new hulls
+        val all = TechTree.nodes.map { it.id }.toSet()
+        val maxed = RocketModel(RocketSpec(all), 24)
+        assertEquals(60, maxed.nozzles[0].size)
+        assertEquals(8, maxed.stageBase.size)
+        assertEquals(6, maxed.boosterOffsets.size)
+        assertTrue("sails/tethers/loop open in space", maxed.parts.count { it.group == RocketModel.SPREAD } >= 3)
+        assertTrue("nanotube hull", maxed.parts.any { it.mat == com.brandonwallace.rocketlauncher.gl.MatType.NANO })
+        assertTrue("lots of glowing hardware", maxed.parts.count { it.emissive != null } >= 15)
+        assertTrue(maxed.totalLength < 120f)
+        // the Saturn exhaust families all look different
+        val jupEra = TechTree.nodes.filter { it.tier < TechTree.SATURN_TIER }.map { it.id }.toSet()
+        val firsts = listOf(setOf("P_MK4"), setOf("P_MK4", "P_TRIPROP"), setOf("P_MK4", "P_TRIPROP", "P_RDE"), setOf("P_MK4", "P_TRIPROP", "P_RDE", "P_RDE42"),
+            setOf("P_MK4", "P_TRIPROP", "P_RDE", "P_RDE42", "P_SPIKE"), setOf("P_MK4", "P_TRIPROP", "P_RDE", "P_RDE42", "P_SPIKE", "P_RDE60"),
+            setOf("P_MK4", "P_TRIPROP", "P_RDE", "P_RDE42", "P_SPIKE", "P_RDE60", "P_BEAMED")).map { com.brandonwallace.rocketlauncher.gl.Exhaust.firstStage(RocketSpec(jupEra + it)) }
+        println("Saturn first-stage exhaust: ${firsts.map { it.name }}")
+        assertEquals(firsts.size, firsts.map { it.name }.toSet().size)
+        assertTrue("the aerospike stays tight in vacuum", firsts[4].vacSpread < 0.5f && firsts[2].vacSpread == 1f)
+        assertTrue("detonation rings show in vacuum", firsts[2].striations)
+        val uppers = listOf(setOf("P_DFD"), setOf("P_DFD", "P_DFD2"), setOf("P_DFD", "P_DFD2", "P_AMAT"), setOf("P_DFD", "P_DFD2", "P_AMAT", "P_AMAT2"))
+            .map { com.brandonwallace.rocketlauncher.gl.Exhaust.upperStage(RocketSpec(jupEra + it)) }
+        println("Saturn upper-stage exhaust: ${uppers.map { it.name }}")
+        assertEquals(uppers.size, uppers.map { it.name }.toSet().size)
+        assertTrue("the antimatter beam is the longest, narrowest plume", uppers[3].length > uppers[0].length && uppers[3].width < uppers[0].width)
+    }
+
     @Test fun muteButtonTogglesAndPersists() {
         val h = Harness(SaveData(money = 10).serialize())
         val e = h.engine
