@@ -4,7 +4,6 @@ import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.util.Log
 import com.brandonwallace.rocketlauncher.audio.SoundEngine
-import com.brandonwallace.rocketlauncher.game.Destination
 import com.brandonwallace.rocketlauncher.game.EntityKind
 import com.brandonwallace.rocketlauncher.game.Fx
 import com.brandonwallace.rocketlauncher.game.GameEngine
@@ -440,11 +439,8 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
 
     /** Unit direction from the rocket toward the flight target (Moon or Mars), for the deep-space camera. */
     private fun targetDir(out: FloatArray): FloatArray {
-        if (engine.destination == Destination.MARS) { marsDirection(out); return out }
-        moonPos(out)
-        val n = sqrt(out[0] * out[0] + out[1] * out[1] + out[2] * out[2]).coerceAtLeast(1e-6f)
-        for (i in 0..2) out[i] /= n
-        return out
+        // 1.1: every flight is the one Moon→Mars mission, so the camera always looks toward Mars
+        marsDirection(out); return out
     }
 
     // ------------------------------------------------------------------ lighting
@@ -521,7 +517,7 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
 
     /** Mars direction + distance (in Mars radii) for Mars flights; it drifts to the zenith on approach, like the Moon. */
     private fun setMarsUniforms(p: ShaderProgram) {
-        val show = engine.destination == Destination.MARS && (sPhase == Phase.FLIGHT || sPhase == Phase.RESULTS)
+        val show = sPhase == Phase.FLIGHT || sPhase == Phase.RESULTS
         if (!show) { p.f3("uMarsDir", 0f, 1f, 0f); p.f("uMarsD", 0f); return }
         val camKm = camY / 1000.0
         val distKm = Physics.MARS_CENTER_DIST / 1000.0 - (R_KM + camKm)
@@ -540,8 +536,8 @@ class GameRenderer(private val engine: GameEngine, private val sound: SoundEngin
 
     /** Moon centre relative to the camera, in km. It drifts toward the zenith as you approach so you arrive on it. */
     private fun moonPos(out: FloatArray) {
-        // On Mars flights the Moon stays off to the side (a flyby) instead of drifting into the flight path.
-        val p = if (engine.destination == Destination.MARS) 0.0 else (sAlt / Physics.MOON_ARRIVAL_ALT).coerceIn(0.0, 1.0)
+        // The one mission flies past the Moon: it stays off to the side (a flyby) instead of drifting into the flight path.
+        val p = 0.0
         val th = Math.toRadians(16.0 * sqrt(1.0 - p) + 0.0)
         val dist = Physics.MOON_CENTER_DIST / 1000.0
         val dx = -0.3 * sin(th); val dz = -0.95 * sin(th); val dy = cos(th)

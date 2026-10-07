@@ -34,8 +34,6 @@ class RocketSpec(val tech: Set<String>) {
         const val RADIUS = 0.85f
         const val PAYLOAD_KG = 220.0
         const val VAC2_BONUS = 20.0
-        /** Fraction of the last stage's fuel needed on arrival to land instead of crash. */
-        const val LANDING_FUEL_FRAC = 0.04
         /** Mars: fuel (fraction of last stage) needed on arrival for the orbit-capture burn. */
         const val MARS_CAPTURE_FUEL_FRAC = 0.03
     }
@@ -79,10 +77,10 @@ class RocketSpec(val tech: Set<String>) {
     val steerResponse = STEER_RESP[level(Stat.FINS)] * (1f + 0.2f * level(Stat.AVIONICS))
     /** Digital flight computer throttles back through max-Q heating. */
     val autoThrottle = level(Stat.AVIONICS) >= 3
+    /** Radio guidance: the autopilot sees hazards early (and the HUD shows them). */
     val hazardRadar = level(Stat.AVIONICS) >= 1
-    /** Deep-space navigation: engines cut automatically once the coast reaches the destination. */
-    /** Flight computer (avionics 3) cuts the engines once on course for the Moon; deep-space nav (avionics 4) also for Mars. */
-    fun navAutoCut(dest: Destination) = level(Stat.AVIONICS) >= (if (dest == Destination.MARS) 4 else 3)
+    /** Deep-space navigation (avionics 4): the autopilot cuts the engines once the coast reaches Mars. */
+    val navAutoCut = level(Stat.AVIONICS) >= 4
     val separationTime = if (level(Stat.SEP) > 0) 0.15 else 0.45
     val engineCount: Int = when { has("P_RAPTOR2") -> 13; has("P_FFSC") -> 9; has("P_STAGED") -> 3; else -> 1 }
     /** Mars entry, descent & landing needs a Mars-rated aeroshell and a supersonic parachute. */

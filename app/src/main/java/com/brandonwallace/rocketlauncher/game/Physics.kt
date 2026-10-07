@@ -48,7 +48,7 @@ object Physics {
     fun speedOfSound(alt: Double): Double = if (alt < 11_000) 340.3 - 0.0041 * alt else 295.0
 
     /**
-     * Sim-time multiplier so trips to the Moon take seconds, not days. ~1x near the ground (hazard dodging),
+     * Sim-time multiplier so trips to the Moon take seconds, not days. ~1x near the ground (autopilot dodging),
      * easing to 4x at the Karman line so the climb through the upper atmosphere doesn't drag; continuous above.
      */
     fun timeWarp(alt: Double, cap: Double = MOON_WARP_CAP): Double {
@@ -145,7 +145,7 @@ class FlightState(val spec: RocketSpec) {
         val rho = Physics.density(alt)
         dynPressure = 0.5 * rho * vy * vy
         val drag = dynPressure * spec.cd * spec.area * (if (vy >= 0) 1.0 else -1.0)
-        // steering costs a little vertical thrust (35% of the pure cosine loss so dodging stays viable)
+        // autopilot steering costs a little vertical thrust (35% of the pure cosine loss)
         var a = (thrust * (1.0 - 0.35 * (1.0 - cos(tilt))) - drag) / m - Physics.gravity(alt)
         if (!liftedOff) {
             if (a > 0) { liftedOff = true; out.add(FlightEvent.Liftoff) } else a = 0.0
@@ -169,28 +169,39 @@ class FlightState(val spec: RocketSpec) {
     }
 }
 
-class SimResult(val maxAlt: Double, val topSpeed: Double, val reachedMoon: Boolean, val destroyed: Boolean, val time: Double, val warpedRealTime: Double) {
-    /** Same flag, named for the destination the sim was run against. */
-    val reachedTarget: Boolean get() = reachedMoon
+class SimResult(
+    val maxAlt: Double, val topSpeed: Double, val reachedMars: Boolean, val destroyed: Boolean, val time: Double, val warpedRealTime: Double,
+    val passedMoon: Boolean = maxAlt >= Physics.MOON_ARRIVAL_ALT,
+    val marsOrbit: Boolean = false, val marsLanded: Boolean = false,
+) {
+    /** Kept for older callers: true when the flight got past the Moon. */
+    val reachedMoon: Boolean get() = passedMoon
 }
 
-/** Autopilot: full throttle straight up. Used by the hangar prediction and by unit tests. */
-fun simulateAutopilot(spec: RocketSpec, maxSimTime: Double = 2.0e6, targetAlt: Double = Physics.MOON_ARRIVAL_ALT): SimResult {
-    val deep = targetAlt > Physics.EARTH_SOI
-    val simCap = if (deep) max(maxSimTime, 3.0e8) else maxSimTime
-    val warpCap = if (deep) Physics.MARS_WARP_CAP else Physics.MOON_WARP_CAP
+/**
+ * Offline run of the real [Autopilot] (same throttle/nav-cut rules as the live flight, no hazards) along the one
+ * mission path to Mars. Used by the hangar prediction and by unit tests.
+ */
+fun simulateAutopilot(spec: RocketSpec, maxSimTime: Double = 3.0e8): SimResult {
+    val targetAlt = Physics.MARS_ARRIVAL_ALT
     val s = FlightState(spec)
     val ev = ArrayList<FlightEvent>()
     var realTime = 0.0
     var descending = 0.0
-    while (s.time < simCap) {
-        val dt = if (s.alt < 160_000) 0.02 else (s.alt / max(abs(s.vy), 1.0) * 0.002).coerceIn(0.02, if (deep) 3600.0 else 60.0)
-        s.step(dt, 1.0, ev)
+    while (s.time < maxSimTime) {
+        val dt = if (s.alt < 160_000) 0.02 else (s.alt / max(abs(s.vy), 1.0) * 0.002).coerceIn(0.02, 3600.0)
+        // while burning, keep steps short enough that the nav cut lands close to the real engine's
+        val burning = Autopilot.throttle(spec, s) > 0 && s.hasThrustAvailable()
+        val h = if (burning && s.alt >= 160_000) min(dt, 2.0) else dt
+        s.step(h, Autopilot.throttle(spec, s), ev)
         ev.clear()
-        realTime += dt / Physics.timeWarp(s.alt, warpCap)
+        realTime += h / Physics.timeWarp(s.alt, Physics.MARS_WARP_CAP)
         if (s.hull <= 0) return SimResult(s.maxAlt, s.topSpeed, false, true, s.time, realTime)
-        if (s.alt >= targetAlt) return SimResult(s.maxAlt, s.topSpeed, true, false, s.time, realTime)
-        if (s.liftedOff && s.vy < 0) { descending += dt; if (descending > 1.0) break }
+        if (s.alt >= targetAlt) {
+            val a = MarsArrival.evaluate(spec, s.stage, s.remainingFuel())
+            return SimResult(s.maxAlt, s.topSpeed, true, false, s.time, realTime, marsOrbit = a.orbit, marsLanded = a.landed)
+        }
+        if (s.liftedOff && s.vy < 0) { descending += h; if (descending > 1.0) break }
         if (s.time > 5 && !s.liftedOff) break
     }
     return SimResult(s.maxAlt, s.topSpeed, false, false, s.time, realTime)

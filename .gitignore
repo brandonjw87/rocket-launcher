@@ -24,3 +24,6 @@ build.log
 
 # Temp files
 *.tmp
+
+# Emulator test screenshots
+test-shots/
