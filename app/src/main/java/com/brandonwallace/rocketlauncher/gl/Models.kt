@@ -582,13 +582,16 @@ class RocketModel(val spec: RocketSpec, private val segs: Int) {
             val dt = mb().color(bodyCol[0], bodyCol[1], bodyCol[2]).material(bodyRough, bodyMetal)
             val st = mb().color(0.3f, 0.3f, 0.32f).material(0.5f, 0.7f)
             val tr = 0.24f; val y0 = tankStart + 0.3f; val y1 = tankStart + L * 0.8f
-            for (sx in listOf(-1f, 1f)) {
-                val x = sx * (r + tr + 0.08f)
-                dt.transform(Mat.trs(FloatArray(16), x, 0f, 0f))
+            val dist = r + tr + 0.08f
+            // at 45° and 225°: clear of the bimodal-nuclear radiator plates (0°/180°), the decal and the armour plates
+            for (k in 0..1) {
+                val a = Math.toRadians(45.0 + 180.0 * k)
+                val cx = cos(a).toFloat(); val cz = sin(a).toFloat()
+                dt.transform(Mat.trs(FloatArray(16), cx * dist, 0f, cz * dist))
                 dt.lathe(floatArrayOf(tr * 0.7f, y0 - 0.2f, tr, y0, tr, y1), segs)
                 val tip = noseProfile(tr, tr * 2.4f, 1); for (j in 0 until tip.size / 2) tip[2 * j + 1] += y1
                 dt.lathe(tip, segs); dt.transform(null)
-                for (yy in listOf(y0 + 0.3f, y1 - 0.3f)) st.beam(sx * (r * 0.99f), yy, 0f, x - sx * tr * 0.9f, yy, 0f, 0.05f)
+                for (yy in listOf(y0 + 0.3f, y1 - 0.3f)) st.beam(cx * r * 0.99f, yy, cz * r * 0.99f, cx * (dist - tr * 0.9f), yy, cz * (dist - tr * 0.9f), 0.05f)
             }
             add(i, dt, if (bodyMat == MatType.NANO) MatType.NANO else MatType.BODY, floatArrayOf(1.2f, 0f, 0f, 0f))
             add(i, st, MatType.METAL)
@@ -826,6 +829,13 @@ class RocketModel(val spec: RocketSpec, private val segs: Int) {
             shield.lathe(floatArrayOf(rp, 0f, rp * 0.93f, 0.08f, rp * 0.5f, 0.22f, 0.001f, 0.3f), segs)
             shield.transform(null)
             add(PAYLOAD, shield, MatType.PLAIN)
+            if (titan == 1) {   // adapter cone to the hull (the probe's back cover takes its place at TITAN 2)
+                val ad = mb().color(0.55f, 0.56f, 0.6f).material(0.4f, 0.8f)
+                ad.transform(side(90f, y0 + 1.6f, r + 0.38f, rz = -90f))
+                ad.lathe(floatArrayOf(rp * 0.35f, -0.38f - 0.15f * r, rp * 0.5f, 0f), segs)
+                ad.transform(null)
+                add(PAYLOAD, ad, MatType.METAL)
+            }
             if (titan >= 2) {
                 val back = mb().color(0.86f, 0.63f, 0.2f).material(0.32f, 1f)
                 back.transform(side(90f, y0 + 1.6f, r + 0.38f, rz = -90f))
@@ -873,6 +883,7 @@ class RocketModel(val spec: RocketSpec, private val segs: Int) {
             hg.lathe(floatArrayOf(0.05f, 0f, rd * 0.6f, 0.08f, rd, 0.24f), segs)
             hg.lathe(floatArrayOf(rd, 0.24f, rd * 0.6f, 0.06f, 0.05f, -0.02f), segs)
             hg.cylinder(0.05f, 0f, rd * 0.55f, 8)
+            hg.cylinder(0.05f, -0.35f - 0.3f * r, 0f, 8)   // boom into the bay
             hg.transform(null)
             add(PAYLOAD, hg, MatType.PLAIN)
         }
@@ -930,6 +941,10 @@ class RocketModel(val spec: RocketSpec, private val segs: Int) {
         if (cruise >= 4) {   // magnetic sail: a huge superconducting loop
             val ml = mb().color(0.35f, 0.75f, 1f).material(0.2f, 0f)
             torus(ml, 10f, yTop + 0.05f, 0.07f, 8)
+            for (k in 0 until 4) {   // spokes that hold the loop out
+                val a = (PI / 4 + k * PI / 2).toFloat()
+                ml.beam(cos(a) * r * 0.95f, yTop + 0.05f, sin(a) * r * 0.95f, cos(a) * 10f, yTop + 0.05f, sin(a) * 10f, 0.02f)
+            }
             add(SPREAD, ml, MatType.PLAIN, emissive = GLOW_CYAN)
         }
         if (cruise >= 5) {   // laser-boosted lightsail: a round shining disc

@@ -317,7 +317,7 @@ class SimResult(
 
 /**
  * Offline run of the real [Autopilot] (same throttle/nav-cut rules as the live flight, no hazards) along the one
- * mission path to [target]. Used by the hangar prediction and by unit tests.
+ * mission path to [target]. Used by the balance tests (the hangar forecast flies the real launch: [forecastFlight]).
  */
 fun simulateAutopilot(spec: RocketSpec, target: MissionTarget = MissionTarget.MARS, maxSimTime: Double = 6.0e8): SimResult {
     val targetAlt = target.arrivalAlt

@@ -80,8 +80,8 @@ import com.brandonwallace.rocketlauncher.game.TechTree
 import com.brandonwallace.rocketlauncher.game.formatAlt
 import com.brandonwallace.rocketlauncher.game.formatMoney
 import com.brandonwallace.rocketlauncher.game.formatSpeed
-import com.brandonwallace.rocketlauncher.game.missionFraction
-import com.brandonwallace.rocketlauncher.game.simulateAutopilot
+import com.brandonwallace.rocketlauncher.game.missionPercent
+import com.brandonwallace.rocketlauncher.game.forecastFlight
 import com.brandonwallace.rocketlauncher.gl.Exhaust
 import com.brandonwallace.rocketlauncher.gl.GameView
 import kotlinx.coroutines.Dispatchers
@@ -166,8 +166,8 @@ fun MenuScreen(engine: GameEngine, save: SaveData) {
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Panel(Modifier.fillMaxWidth()) {
-                    Row { StatCell("Best altitude", formatAlt(save.bestAltitude), Modifier.weight(1f)); StatCell("Flights", "${save.flights}", Modifier.weight(1f)) }
-                    Row { StatCell("Top speed", formatSpeed(save.bestSpeed), Modifier.weight(1f)); StatCell("Tech", "${save.tech.size}/${TechTree.nodes.size}", Modifier.weight(1f)) }
+                    Row { StatCell("Best altitude", formatAlt(save.bestAltitude), Modifier.weight(1.4f), fit = true); StatCell("Flights", "${save.flights}", Modifier.weight(1f), fit = true) }
+                    Row { StatCell("Top speed", formatSpeed(save.bestSpeed), Modifier.weight(1.4f), fit = true); StatCell("Tech", "${save.tech.size}/${TechTree.nodes.size}", Modifier.weight(1f), fit = true) }
                     MissionLine(save, Modifier.padding(top = 4.dp))
                 }
                 MoneyChip(save.money)
@@ -254,10 +254,10 @@ fun SettingsDialog(engine: GameEngine, save: SaveData, onDismiss: () -> Unit) {
 @Composable
 fun HangarScreen(engine: GameEngine, save: SaveData) {
     val spec = remember(save.tech) { RocketSpec(save.tech) }
-    val target = MissionTarget.of(save)
-    val sim by produceState<com.brandonwallace.rocketlauncher.game.SimResult?>(null, save.tech, target) {
+    // flies the coming launch in a throwaway engine: the flight number sets the hazards, so it is a key too
+    val sim by produceState<FlightResult?>(null, save.tech, save.flights) {
         value = null
-        value = withContext(Dispatchers.Default) { simulateAutopilot(spec, target) }
+        value = withContext(Dispatchers.Default) { forecastFlight(save) }
     }
     val affordable = TechTree.available(save).count { it.cost <= save.money }
     Box(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp)) {
@@ -265,7 +265,7 @@ fun HangarScreen(engine: GameEngine, save: SaveData) {
             IconButtonRound("←") { engine.openMenu() }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text("HANGAR", color = UiColors.Text, fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
+                FitText("HANGAR", UiColors.Text, 22.sp, minSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
                 Text("Flight ${save.flights + 1}", color = UiColors.TextDim, fontSize = 12.sp)
             }
             MuteButton(save.soundOn) { engine.toggleSound() }
@@ -273,7 +273,7 @@ fun HangarScreen(engine: GameEngine, save: SaveData) {
             MoneyChip(save.money)
         }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            MissionPanel(save, spec)
+            MissionPanel(save, spec, sim)
             Panel(Modifier.fillMaxWidth()) {
                 SectionLabel("Vehicle performance")
                 Row {
@@ -285,21 +285,22 @@ fun HangarScreen(engine: GameEngine, save: SaveData) {
                     val s = sim
                     StatCell("Autopilot forecast", when {
                         s == null -> "…"
+                        s.reason == "Rocket destroyed" -> "💥 hull fails · " + formatAlt(s.maxAlt)
                         s.titanFlight -> "🚁 Titan flight"
                         s.titanProbe -> "🪂 Titan probe"
                         s.enceladus -> "⛲ Enceladus plumes"
                         s.saturnOrbit -> "🛰️ Saturn orbit"
                         s.ringsCrossed -> "💫 Ring crossing"
-                        s.reachedSaturn -> "🪐 Saturn flyby"
-                        s.reachedJupiter && s.target == MissionTarget.SATURN -> "🌀 past Jupiter · " + formatAlt(s.maxAlt)
+                        s.saturnReached -> "🪐 Saturn flyby"
+                        s.jupiterReached && s.target == MissionTarget.SATURN -> "🌀 past Jupiter · " + formatAlt(s.maxAlt)
                         s.europaLanded -> "🧊 Europa landing"
                         s.jupiterOrbit -> "🟠 Jupiter orbit"
-                        s.reachedJupiter -> "🟠 Jupiter flyby"
+                        s.jupiterReached -> "🟠 Jupiter flyby"
                         s.marsLanded -> "🔴 Mars landing"
                         s.marsOrbit -> "🔴 Mars orbit"
-                        s.reachedMars && s.target == MissionTarget.MARS -> "🔴 Mars flyby"
-                        s.reachedMars -> "☄️ past Mars · " + formatAlt(s.maxAlt)
-                        s.passedMoon -> "🌕 past Moon · " + formatAlt(s.maxAlt)
+                        s.marsReached && s.target == MissionTarget.MARS -> "🔴 Mars flyby"
+                        s.marsReached -> "☄️ past Mars · " + formatAlt(s.maxAlt)
+                        s.moonPassed -> "🌕 past Moon · " + formatAlt(s.maxAlt)
                         else -> formatAlt(s.maxAlt)
                     }, Modifier.weight(1f), UiColors.Cyan)
                     StatCell("Stages", "${spec.stages.size}" + (if (spec.boosterCount > 0) " + ${spec.boosterCount} " + (if (spec.heavySideCores) "cores" else "SRB") else ""), Modifier.weight(1f))
@@ -328,7 +329,7 @@ fun HangarScreen(engine: GameEngine, save: SaveData) {
                     color = UiColors.Gold, fontSize = 12.sp)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                GameButton(if (affordable > 0) "🔬 TECH TREE ($affordable)" else "🔬 TECH TREE", Modifier.weight(1f), color = UiColors.Cyan) { engine.openTech() }
+                GameButton(if (affordable > 0) "🔬 TECH ($affordable)" else "🔬 TECH TREE", Modifier.weight(1f), color = UiColors.Cyan) { engine.openTech() }
                 GameButton("🚀 LAUNCH", Modifier.weight(1f)) { engine.launch() }
             }
         }
@@ -385,14 +386,16 @@ fun RadarStrip(radar: List<Float>, modifier: Modifier = Modifier) {
 @Composable
 fun FlightHud(engine: GameEngine, hud: HudState) {
     Box(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp)) {
-        Column(Modifier.align(Alignment.TopStart).glass(RoundedCornerShape(18.dp)).padding(horizontal = 14.dp, vertical = 8.dp)) {
-            Text(formatAlt(hud.altitude), color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+        // end padding keeps the box clear of the pause/mute buttons; the altitude shrinks to fit ("1,150,101,711 km")
+        Column(Modifier.align(Alignment.TopStart).padding(end = 58.dp).glass(RoundedCornerShape(18.dp)).padding(horizontal = 14.dp, vertical = 8.dp)) {
+            FitText(formatAlt(hud.altitude), Color.White, 30.sp, minSize = 16.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text((if (hud.vSpeed < 0) "↓ " else "↑ ") + formatSpeed(hud.speed), color = UiColors.Cyan, fontSize = 15.sp, fontFamily = FontFamily.Monospace)
                 if (hud.mach >= 0.8f && hud.altitude < 60_000) Text("  M%.1f".format(hud.mach), color = UiColors.Gold, fontSize = 13.sp)
+                // time warp shares the speed line so the box stays clear of the radar strip below
+                if (hud.warp > 1.5f) Text("  ⏩ ×%,d".format(hud.warp.toInt()), color = UiColors.Gold, fontSize = 11.sp, maxLines = 1)
             }
             Text(hud.zone, color = UiColors.TextDim, fontSize = 11.sp)
-            if (hud.warp > 1.5f) Text("⏩ time warp ×%,d".format(hud.warp.toInt()), color = UiColors.Gold, fontSize = 11.sp)
         }
         Column(Modifier.align(Alignment.TopEnd), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             IconButtonRound("II") { engine.setPaused(true) }
@@ -506,7 +509,7 @@ fun ResultsScreen(engine: GameEngine, r: FlightResult, save: SaveData) {
                 r.target == MissionTarget.SATURN && r.marsReached -> "Saturn is twice as far as Jupiter. Keep upgrading to push on!"
                 r.europaLanded -> "A lander stands on Europa's ice, 588 million km from home! 🪐 The Saturn program is now open in the tech tree."
                 r.jupiterOrbit -> "In orbit around the king of the planets! Europa is next."
-                r.marsLanded && save.marsLandings == 1 -> "Humanity's rocket stands on Mars! 🪐 The Jupiter program is now open in the tech tree."
+                r.marsLanded && save.marsLandings == 1 -> "Humanity's rocket stands on Mars! 🟠 The Jupiter program is now open in the tech tree."
                 r.marsLanded -> "Humanity's rocket stands on Mars! Keep flying to finish the tech tree and set records."
                 r.target == MissionTarget.JUPITER && r.marsReached && !r.jupiterReached -> "Past Mars and on toward Jupiter! Keep upgrading to make it all the way."
                 r.moonPassed && !r.marsReached -> "Past the Moon! Keep upgrading to push on to Mars."
@@ -518,7 +521,9 @@ fun ResultsScreen(engine: GameEngine, r: FlightResult, save: SaveData) {
             ResultRow("Top speed", formatSpeed(r.topSpeed), "Speed" in r.records)
             ResultRow("Flight time", formatSimTime(r.time), false)
             ResultRow("Hazards hit", "${r.hits}", false)
-            ResultRow("Mission", "%.0f%% of the way to %s".format(missionFraction(r.maxAlt, r.target) * 100, r.target.title), false)
+            // arrivals set these flags only for the flight's own target
+            val arrived = when (r.target) { MissionTarget.MARS -> r.marsReached; MissionTarget.JUPITER -> r.jupiterReached; MissionTarget.SATURN -> r.saturnReached }
+            ResultRow("Mission", "${missionPercent(r.maxAlt, r.target, arrived)}% of the way to ${r.target.title}", false)
             Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
             ResultRow("Flight performance", "+" + formatMoney(r.performancePay), false, UiColors.Gold)
             for (m in r.milestones) ResultRow("⭐ ${m.title}", "+" + formatMoney(m.bonus), false, UiColors.Gold)
@@ -546,11 +551,12 @@ fun ResultsScreen(engine: GameEngine, r: FlightResult, save: SaveData) {
 
 @Composable
 fun ResultRow(label: String, value: String, record: Boolean, color: Color = Color.White) {
+    // the label keeps its width on one line; the value takes the rest and shrinks to fit (Saturn distances are long)
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = Color(0xFFB8C4EE), fontSize = 14.sp, modifier = Modifier.weight(1f))
-        if (record) Text("NEW RECORD ", color = UiColors.Gold, fontSize = 10.sp, fontWeight = FontWeight.Black,
+        Text(label, color = Color(0xFFB8C4EE), fontSize = 14.sp, maxLines = 1, softWrap = false, modifier = Modifier.padding(end = 8.dp))
+        if (record) Text("NEW RECORD", color = UiColors.Gold, fontSize = 10.sp, fontWeight = FontWeight.Black, maxLines = 1, softWrap = false,
             modifier = Modifier.padding(end = 6.dp).clip(RoundedCornerShape(6.dp)).background(Color(0x44FFD34D)).padding(horizontal = 6.dp, vertical = 2.dp))
-        Text(value, color = color, fontSize = 15.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+        FitText(value, color, 15.sp, Modifier.weight(1f), minSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, textAlign = TextAlign.End)
     }
 }
 
@@ -583,7 +589,7 @@ fun MissionLine(save: SaveData, modifier: Modifier = Modifier) {
 
 /** Hangar: the one mission (no destination picker) and its next step. */
 @Composable
-fun MissionPanel(save: SaveData, spec: RocketSpec) {
+fun MissionPanel(save: SaveData, spec: RocketSpec, forecast: FlightResult? = null) {
     val next = Mission.next(save)
     val target = MissionTarget.of(save)
     val jupiter = target == MissionTarget.JUPITER
@@ -601,7 +607,7 @@ fun MissionPanel(save: SaveData, spec: RocketSpec) {
             !jupiter && !saturn && save.milestones.contains(Milestone.MOON) && !spec.marsEntryReady ->
                 "Landing on Mars needs PICA-X Aeroshell + Supersonic Parachute (Thermal branch)"
             jupiter && save.tech.none { TechTree.byId[it]?.program == Program.JUPITER } ->
-                "🪐 Jupiter program unlocked: new upgrades in tech tiers 10–12"
+                "🟠 Jupiter program unlocked: new upgrades in tech tiers 10–12"
             jupiter && !spec.deepSpacePower ->
                 "Past Mars the nav computer needs Juno-Class Solar Arrays (Avionics) to save fuel"
             jupiter && !spec.jupiterRadiationReady ->
@@ -610,16 +616,23 @@ fun MissionPanel(save: SaveData, spec: RocketSpec) {
                 "Landing on Europa needs the Europa Lander + Radiation-Hardened Electronics"
             saturn && save.tech.none { TechTree.byId[it]?.program == Program.SATURN } ->
                 "🪐 Saturn program unlocked: new upgrades in tech tiers 13–24"
-            saturn && !spec.saturnNavPower ->
-                "Past Jupiter the nav computer needs Next-Gen RTGs (Avionics) to save fuel"
+            // until the rocket can get there, only reach helps (shields and instruments add mass)
+            saturn && next != null && next <= Mission.SATURN_ARRIVAL && forecast != null && !forecast.saturnReached ->
+                "To reach Saturn: more Δv, a bigger Jupiter slingshot (Avionics) and cruise sails (Propulsion)"
             saturn && !spec.ringShield ->
                 "Crossing Saturn's rings needs the Ring-Plane Dust Shield (Structures)"
+            saturn && !spec.saturnNavPower ->
+                "Past Jupiter the nav computer needs Next-Gen RTGs (Avionics) to save fuel for Saturn orbit"
+            saturn && next == Mission.SATURN_ORBIT ->
+                "Saturn orbit needs ${(spec.saturnCaptureFuelFrac * 100).toInt()}% fuel left at Saturn (or a spare stage): more Δv, or aerocapture (Thermal, Aerodynamics)"
             saturn && !spec.plumeReady ->
                 "Flying through Enceladus' plumes needs the Plume Mass Spectrometer (Avionics)"
             saturn && !spec.titanProbeReady ->
-                "A Titan probe needs the Titan Entry Aeroshell + Huygens-Class Probe (Thermal)"
+                "A Titan probe needs ${spec.titanProbeMissing} (Thermal)"
             saturn && !spec.titanFlightReady ->
                 "Flying on Titan needs the Dragonfly Rotorcraft (Aerodynamics)"
+            saturn && next == Mission.TITAN_FLIGHT ->
+                "Flying on Titan needs ${(spec.titanLandingFuelFrac * 100).toInt()}% fuel left at Saturn (or a spare stage)"
             else -> ""
         }
         if (hint.isNotEmpty()) Text(hint, color = UiColors.Gold, fontSize = 11.sp)

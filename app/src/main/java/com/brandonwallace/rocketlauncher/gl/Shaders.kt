@@ -477,6 +477,14 @@ vec3 bodyLight(vec3 dirToBody) {
 void main() {
     vec4 p = uInvVP * vec4(vNdc, 1.0, 1.0);
     vec3 rd = normalize(p.xyz / p.w);
+    // Saturn ring footprint for the ringlet fade, taken here in uniform control flow: derivatives are undefined
+    // inside the per-pixel branches below (Adreno/Mali quads would read stale lanes and the ringlets would flicker)
+    float ringFw = 0.0;
+    if (uSatD > 0.0) {
+        float dn0 = dot(rd, uRingN);
+        float tR0 = dot(uSatDir, uRingN) * uSatD / (abs(dn0) > 1e-6 ? dn0 : 1e-6);
+        ringFw = fwidth(length(rd * tR0 - uSatDir * uSatD));
+    }
     vec4 lut = texture(uLut, lutUV(rd));
     vec3 ins = lut.rgb * 4.0;
     float T = lut.a;
@@ -684,7 +692,7 @@ void main() {
                 if (tR > 0.0 && tR * SAT_RKM < tHit) {
                     vec3 Q = rd * tR - C;
                     float rho = length(Q);
-                    float op = ringOpacity(rho, fwidth(rho));
+                    float op = ringOpacity(rho, ringFw);
                     if (op > 0.0) {
                         // in Saturn's shadow?
                         float qs = dot(Q, sl);
@@ -762,7 +770,7 @@ uniform mat4 uVP; uniform float uRkm; uniform float uC0; uniform float uAltKm; u
 uniform vec3 uMoonPos; uniform float uMoonR;
 uniform vec3 uMarsDir; uniform float uMarsD;
 uniform vec3 uJupDir; uniform float uJupD;
-uniform vec3 uSatDir; uniform float uSatD;
+uniform vec3 uSatDir; uniform float uSatD; uniform vec3 uRingN;
 out vec3 vC;
 void main() {
     vec3 d = normalize(aDir);
@@ -776,9 +784,19 @@ void main() {
     if (uJupD > 0.0 && dot(d, uJupDir) > 0.0 && dot(jc, jc) * uJupD * uJupD < 1.1) hidden = true;
     vec3 sc = cross(d, uSatDir);
     if (uSatD > 0.0 && dot(d, uSatDir) > 0.0 && dot(sc, sc) * uSatD * uSatD < 1.1) hidden = true;
+    if (uSatD > 0.0 && uSatD < 3000.0) {   // the dense B and A rings hide the stars behind them
+        float dn = dot(d, uRingN);
+        if (abs(dn) > 1e-6) {
+            float tR = dot(uSatDir, uRingN) * uSatD / dn;
+            float rho = length(d * tR - uSatDir * uSatD);
+            if (tR > 0.0 && ((rho > 1.53 && rho < 1.95) || (rho > 2.03 && rho < 2.265))) hidden = true;
+        }
+    }
     gl_Position = uVP * vec4(d, 1.0);
     gl_Position.z = gl_Position.w * 0.9999;
-    gl_PointSize = hidden ? 0.0 : uPx * (1.2 + 1.6 * aMag.x);
+    gl_PointSize = uPx * (1.2 + 1.6 * aMag.x);
+    // hidden: move the point outside the clip volume, which drops it (a point size of 0 is undefined in ES 3.0)
+    if (hidden) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
     vC = mix(vec3(1.0, 0.75, 0.55), vec3(0.7, 0.82, 1.0), aMag.y) * aMag.x;
 }
 """

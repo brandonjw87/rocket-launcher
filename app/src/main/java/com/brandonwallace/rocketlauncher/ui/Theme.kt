@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -26,10 +28,12 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -73,8 +77,8 @@ fun GameButton(text: String, modifier: Modifier = Modifier, color: Color = UiCol
     val styled = if (filled) base.background(if (enabled) Brush.verticalGradient(listOf(color, color.copy(alpha = 0.82f))) else Brush.verticalGradient(listOf(Color(0x44FFFFFF), Color(0x33FFFFFF))))
     else base.background(Color(0x22FFFFFF)).border(1.5.dp, if (enabled) color else UiColors.Stroke, shape)
     Box(styled.clickable(enabled = enabled, onClick = onClick).alpha(if (enabled) 1f else 0.6f), contentAlignment = Alignment.Center) {
-        Text(text, color = if (filled && enabled) UiColors.Ink else if (enabled) color else UiColors.TextDim, fontSize = if (height >= 52.dp) 18.sp else 14.sp,
-            fontWeight = FontWeight.Black, letterSpacing = 1.5.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 10.dp))
+        FitText(text, if (filled && enabled) UiColors.Ink else if (enabled) color else UiColors.TextDim, if (height >= 52.dp) 18.sp else 14.sp,
+            Modifier.padding(horizontal = 10.dp), minSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp, textAlign = TextAlign.Center)
     }
 }
 
@@ -95,11 +99,27 @@ fun MoneyChip(money: Long, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun StatCell(label: String, value: String, modifier: Modifier = Modifier, valueColor: Color = UiColors.Text) {
+fun StatCell(label: String, value: String, modifier: Modifier = Modifier, valueColor: Color = UiColors.Text, fit: Boolean = false) {
     Column(modifier.padding(vertical = 2.dp)) {
         SectionLabel(label)
-        Text(value, color = valueColor, fontSize = 17.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+        if (fit) FitText(value, valueColor, 17.sp, minSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+        else Text(value, color = valueColor, fontSize = 17.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
     }
+}
+
+/** One line of text that shrinks (down to [minSize]) instead of wrapping or running under other controls. */
+@Composable
+fun FitText(
+    text: String, color: Color, maxSize: TextUnit, modifier: Modifier = Modifier, minSize: TextUnit = 10.sp,
+    fontWeight: FontWeight? = null, fontFamily: FontFamily? = null, letterSpacing: TextUnit = TextUnit.Unspecified,
+    textAlign: TextAlign = TextAlign.Start,
+) {
+    BasicText(
+        text, modifier,
+        style = TextStyle(color = color, fontSize = maxSize, fontWeight = fontWeight, fontFamily = fontFamily, letterSpacing = letterSpacing, textAlign = textAlign),
+        maxLines = 1, softWrap = false,
+        autoSize = TextAutoSize.StepBased(minFontSize = minSize, maxFontSize = maxSize, stepSize = 0.5.sp),
+    )
 }
 
 @Composable

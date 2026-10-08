@@ -36,10 +36,14 @@ Free, no ads, no internet permission, no tracking.
   (opens after the first Mars landing), 13–24 the Saturn program (opens after the first Europa landing): Jupiter
   slingshot upgrades, solar/ion/electric/magnetic/laser sails for the cruise, Next-Gen RTGs, a ring-plane dust
   shield, aerocapture, a plume mass spectrometer, a Titan aeroshell + Huygens probe and the Dragonfly rotorcraft,
-  plus 7- and 8-stage stacks, six heavy side cores and engines up to direct-fusion drives.
+  plus 7- and 8-stage stacks, six heavy side cores, 42- and 60-engine detonation clusters, and upper-stage drives
+  from direct fusion up to an antimatter beam core.
 - **Saturn physics:** past Jupiter the Sun's pull falls off with distance, a Jupiter flyby adds a slingshot kick,
   and sails/ion engines give a gentle cruise push; the nav computer's coast prediction includes both. Tanks only fill
   as far as the engines can still lift off (thrust-to-weight 1.1), so engines and tanks have to grow together.
+- **Hangar forecast:** flies the coming launch in a throwaway engine (same rocket, same flight number, so the same
+  hazards and the same fuel spent dodging them), so it shows exactly what LAUNCH will do. The offline
+  `simulateAutopilot` (no hazards) is kept for the balance tests.
 - **Upgrades change the rocket's look**, including the exhaust: solid motor → kerosene (gas-generator soot trail) →
   staged combustion → full-flow → blue methalox clusters (1/3/9/13/20/33 engines, then 42/60 rotating detonation engines); upper stages from vacuum hydrolox to
   nuclear to a violet fusion-plasma beam. Plus gimbals, grid fins, RCS/ion thrusters, solar wings that unfold in space,
@@ -66,7 +70,7 @@ pause/stop, and an unreadable save is never overwritten with a blank one.
 ## Build
 
 - Debug: `./gradlew assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`
-- Tests: `./gradlew testDebugUnitTest` (51 tests: economy, saves/migrations, progression, physics, a headless
+- Tests: `./gradlew testDebugUnitTest` (54 tests: economy, saves/migrations, progression, physics, a headless
   engine + renderer smoke test that flies whole campaigns to the Moon, Mars, Europa and Titan).
 - Release (Google Play): `./gradlew bundleRelease` → `app/build/outputs/bundle/release/app-release.aab`, signed with the
   Play **upload key**, read from an external properties file (`-ProcketLauncherKeystoreProps=<path>`, env

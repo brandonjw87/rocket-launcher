@@ -68,6 +68,8 @@ import com.brandonwallace.rocketlauncher.game.formatMoney
 
 enum class NodeState { OWNED, AFFORDABLE, AVAILABLE, LOCKED }
 
+private const val SECONDS_PER_YEAR = 365.25 * 86_400
+
 fun nodeState(save: SaveData, n: TechNode): NodeState = when {
     n.id in save.tech -> NodeState.OWNED
     TechTree.isAvailable(save, n) && save.money >= n.cost -> NodeState.AFFORDABLE
@@ -112,7 +114,9 @@ fun TechTreeScreen(engine: GameEngine, save: SaveData) {
     val nodeH = with(density) { 60.dp.toPx() }
     val pad = with(density) { 24.dp.toPx() }
     var scale by remember { mutableFloatStateOf(0.62f) }
-    var ox by remember { mutableFloatStateOf(with(density) { 12.dp.toPx() }) }
+    // open on the leftmost column that still has something to research (late-game tiers are many screens right)
+    val startTier = remember { TechTree.available(save).minOfOrNull { it.tier } ?: 0 }
+    var ox by remember { mutableFloatStateOf(with(density) { 12.dp.toPx() } - startTier * colW * scale) }
     var oy by remember { mutableFloatStateOf(with(density) { 190.dp.toPx() }) }
     var selected by remember { mutableStateOf<String?>(null) }
     val tm = rememberTextMeasurer()
@@ -202,8 +206,8 @@ fun TechTreeScreen(engine: GameEngine, save: SaveData) {
                 IconButtonRound("←") { engine.openHangar() }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("TECH TREE", color = UiColors.Text, fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
-                    Text("${save.tech.size}/${TechTree.nodes.size} researched · pinch to zoom, drag to pan", color = UiColors.TextDim, fontSize = 11.sp)
+                    FitText("TECH TREE", UiColors.Text, 22.sp, minSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
+                    FitText("${save.tech.size}/${TechTree.nodes.size} researched", UiColors.TextDim, 11.sp, minSize = 8.sp)
                 }
                 MuteButton(save.soundOn) { engine.toggleSound() }
                 Spacer(Modifier.width(8.dp))
@@ -228,8 +232,8 @@ fun TechTreeScreen(engine: GameEngine, save: SaveData) {
             if (sel != null) NodeDetail(engine, save, sel) { selected = null }
         }
         if (sel == null) {
-            Text("Tap a node for details", color = UiColors.TextDim, fontSize = 13.sp,
-                modifier = Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(20.dp).glass(RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 8.dp))
+            FitText("Tap a node · pinch to zoom · drag to pan", UiColors.TextDim, 13.sp,
+                Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(20.dp).glass(RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 8.dp))
         }
     }
 }
@@ -263,7 +267,14 @@ private fun NodeDetail(engine: GameEngine, save: SaveData, n: TechNode, onClose:
         if (st != NodeState.OWNED) {
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 StatDelta("Δv", "%,.0f".format(before.idealDeltaV()), "%,.0f m/s".format(after.idealDeltaV()), after.idealDeltaV() > before.idealDeltaV() + 1, Modifier.weight(1f))
-                StatDelta("TWR", "%.2f".format(before.liftoffTwr()), "%.2f".format(after.liftoffTwr()), after.liftoffTwr() > before.liftoffTwr() + 0.005, Modifier.weight(1f))
+                // slingshot and cruise upgrades don't change Δv or TWR: show what they do add
+                when {
+                    Stat.SLING in n.effects -> StatDelta("Jupiter kick", "%.0f".format(before.slingKick / 1000), "%.0f km/s".format(after.slingKick / 1000),
+                        after.slingKick > before.slingKick, Modifier.weight(1f))
+                    Stat.CRUISE in n.effects -> StatDelta("Cruise push", "%.1f".format(before.cruiseAccel * SECONDS_PER_YEAR / 1000), "%.1f km/s/yr".format(after.cruiseAccel * SECONDS_PER_YEAR / 1000),
+                        after.cruiseAccel > before.cruiseAccel, Modifier.weight(1f))
+                    else -> StatDelta("TWR", "%.2f".format(before.liftoffTwr()), "%.2f".format(after.liftoffTwr()), after.liftoffTwr() > before.liftoffTwr() + 0.005, Modifier.weight(1f))
+                }
             }
         }
         if (n.prereqs.isNotEmpty()) {

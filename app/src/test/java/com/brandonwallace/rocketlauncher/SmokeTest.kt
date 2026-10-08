@@ -14,6 +14,9 @@ import com.brandonwallace.rocketlauncher.game.SaveStore
 import com.brandonwallace.rocketlauncher.game.TechTree
 import com.brandonwallace.rocketlauncher.game.Autopilot
 import com.brandonwallace.rocketlauncher.game.FlightResult
+import com.brandonwallace.rocketlauncher.game.forecastFlight
+import com.brandonwallace.rocketlauncher.game.missionFraction
+import com.brandonwallace.rocketlauncher.game.missionPercent
 import java.math.BigDecimal
 import com.brandonwallace.rocketlauncher.gl.BillboardBatch
 import com.brandonwallace.rocketlauncher.gl.GameRenderer
@@ -583,5 +586,66 @@ class SmokeTest {
         assertEquals(TechTree.nodes.size, sat.tech.size)
         val r = fly(sat); assertTrue("saturn.xml flies on Titan", r.titanFlight)
         assertEquals(8, RocketSpec(sat.tech).stages.size)
+    }
+
+    private fun screenshotSave(name: String): SaveData {
+        val xml = java.io.File("../store-listing/screenshot-saves/$name.xml").readText()
+        return SaveData.parse(xml.substringAfter("<string name=\"save\">").substringBefore("</string>"))
+    }
+
+    @Test fun hangarForecastIsExactlyTheLaunch() {
+        // the forecast flies the coming launch in a throwaway engine: same rocket, same flight number, same hazards
+        for (s in listOf(SaveData(money = 500), screenshotSave("early"), screenshotSave("jupiter"), screenshotSave("saturn"))) {
+            val fc = forecastFlight(s)!!
+            val h = Harness(s.serialize())
+            assertTrue(fly(h, false))
+            val r = h.engine.hud.value.results!!
+            assertEquals(r.reason, fc.reason)
+            assertEquals(r.maxAlt, fc.maxAlt, 0.0)
+            assertEquals(r.hits, fc.hits)
+            assertEquals(r.saturnLevel, fc.saturnLevel)
+            assertEquals(r.total, fc.total)
+            assertEquals(s, GameEngine(MemStore().also { it.data = s.serialize() }).save.value)   // the forecast never touches the real save
+        }
+    }
+
+    @Test fun decidedFlightIsBankedWhenTheAppGoesToTheBackground() {
+        // arrival decided, end animation running, then Home: the result must be on disk before the process can die
+        val h = Harness(screenshotSave("saturn").serialize())
+        val e = h.engine
+        e.openHangar(); h.frame(false)
+        e.launch()
+        var frames = 0
+        while (!e.hud.value.ending && frames < 40_000) { h.frame(false); frames++ }
+        assertTrue("reached the end animation", e.hud.value.ending && e.phase == Phase.FLIGHT)
+        e.setPaused(true)
+        e.persistNow()
+        assertEquals(Phase.RESULTS, e.phase)
+        assertFalse("results are not hidden behind the pause menu", e.hud.value.paused)
+        val reloaded = GameEngine(h.store).save.value
+        assertEquals(121, reloaded.flights)
+        assertEquals(1, reloaded.titanFlights)
+        assertTrue(com.brandonwallace.rocketlauncher.game.Achievement.LONG_HAUL in reloaded.achievements)   // a Saturn flight lasts over a year
+        assertEquals(1, h.store.syncWrites)
+    }
+
+    @Test fun missionPercentOnlyReads100OnArrival() {
+        val pct = ::missionPercent
+        val frac = ::missionFraction
+        // Saturn: the log scale up to Jupiter, then real distance (the chapter is no longer squeezed into 97-100%)
+        assertEquals(49, pct(Physics.JUPITER_ARRIVAL_ALT, MissionTarget.SATURN, false))
+        assertEquals(51, pct(6.15e11, MissionTarget.SATURN, false))
+        assertEquals(99, pct(1.199e12, MissionTarget.SATURN, false))
+        assertEquals(100, pct(Physics.SATURN_ARRIVAL_ALT, MissionTarget.SATURN, true))
+        assertEquals(99, pct(5.85e11, MissionTarget.JUPITER, false))   // was rounded up to a false 100%
+        // Mars and Jupiter keep the 1.2 log scale
+        assertEquals((kotlin.math.ln(1.0 + 384_400.0) / kotlin.math.ln(1.0 + Physics.MARS_ARRIVAL_ALT / 1000)).toFloat(), frac(3.844e8, MissionTarget.MARS), 1e-6f)
+        var last = -1f
+        for (i in 0..400) {   // monotonic everywhere, and no jump where the scale switches at Jupiter
+            val f = frac(Physics.SATURN_ARRIVAL_ALT * i / 400, MissionTarget.SATURN)
+            assertTrue(f >= last)
+            if (i >= 100) assertTrue(f - last < 0.01f)
+            last = f
+        }
     }
 }

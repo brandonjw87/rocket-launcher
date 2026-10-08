@@ -24,7 +24,7 @@ capture**, **how to capture it** and **what size Play accepts**.
 | 4 | **Early rocket in the clouds** (orange kerosene exhaust with shock diamonds) | `early.xml` | ~5–8 km up, inside the cloud layer |
 | 5 | **Space**: stage separation over the curved Earth | `mars.xml` | 150–2,000 km, right after a "Stage separation" banner |
 | 6 | **Jupiter slingshot**: Jupiter sweeping past close by | `saturn.xml` | Banner "🌀 JUPITER SLINGSHOT" (the warp slows down near Jupiter) |
-| 7 | **Saturn and its rings** filling the sky ahead | `saturn.xml` | Banner "⭐ Titan's Orbit" or "⭐ Saturn Arrival", a few seconds before arrival |
+| 7 | **Saturn and its rings** filling the sky ahead | `saturn.xml` | Between the banner "💫 SATURN'S RINGS — ring-plane crossing ahead!" (about 20 s before arrival) and "🚁 DRAGONFLY FLIES ON TITAN!" (arrival) |
 | 8 | **Results**: "Flew on Titan!" | `saturn.xml` | When the results screen appears (the Saturn flight takes about 5 minutes) |
 
 Tips: set **Settings → Graphics: High** first (the saves already do). Don't pause to take a shot, because the pause

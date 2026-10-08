@@ -91,7 +91,9 @@ Google Drive as a **new file**. Don't put it on GitHub.
    It should show **versionCode 5 (1.3)**. If it says the version code is already used, tell me and I'll bump it.
 6. **Release name:** leave the default (`5 (1.3)`).
 7. **Release notes:** paste the text from [`store-listing/release-notes-1.3.txt`](store-listing/release-notes-1.3.txt)
-   between the `<en-US>` and `</en-US>` tags.
+   between the `<en-US>` and `</en-US>` tags. If you never uploaded 1.2, paste
+   [`store-listing/release-notes-1.3-from-1.1.txt`](store-listing/release-notes-1.3-from-1.1.txt) instead: your
+   players are coming from 1.1, so it also tells them about Jupiter, Europa and the mute button.
 8. Click **Next**. Warnings in yellow are OK to read and continue. Errors in red must be fixed (send them to me).
 9. Click **Save**, then go to **Publishing overview** (left menu) → **Send changes for review**.
 
@@ -99,7 +101,7 @@ Review usually takes a few hours to a few days. You'll get an email. Players' ph
 and **keep their progress**: the game moves 1.0, 1.1 and 1.2 saves to the new format and keeps a backup copy.
 
 > Optional but safest: upload to **Internal testing** first, install it from the Play Store on your own phone
-> (it updates over 1.2), check your money and upgrades are still there, then on that release click
+> (it updates over 1.2, or over 1.1 if you skipped 1.2), check your money and upgrades are still there, then on that release click
 > **Promote release** → Production (or your closed track).
 
 > ⚠️ Don't install a **debug** build on the phone that has the Play version. The signatures differ, so Android
@@ -141,7 +143,7 @@ That marks exactly which code is on Google Play.
 ## Quick answers
 
 - **"Will players lose their money?"** No. Same app id and same save file; the save is upgraded on first launch
-  (schema 4 → 5) and the old one is kept as a backup. The automated tests check this, including real 1.1 and 1.2
+  (schema 4 → 5, or 3 → 5 coming from 1.1) and the old one is kept as a backup. The automated tests check this, including real 1.1 and 1.2
   saves. Players who already landed on Europa go straight on to the Saturn chapter.
 - **"Is it still free with no ads?"** Yes. There are no ads, no purchases and no internet permission.
 - **"Next update?"** Change `versionCode` to **6** and `versionName` to "1.4" in `app\build.gradle.kts`, then repeat

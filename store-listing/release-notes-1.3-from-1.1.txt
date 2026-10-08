@@ -1,0 +1,6 @@
+Version 1.3 – On to Jupiter and Saturn!
+• The mission now continues past Mars to Jupiter and a Europa landing, then on to Saturn: slingshot past Jupiter, cross the rings, orbit Saturn, fly through Enceladus' geysers, land a probe on Titan and fly a rotorcraft there
+• 163 upgrades over 24 tiers, 18 mission steps
+• Solar sails, 8-stage rockets and Saturn's rings in 3D
+• Mute button on every screen
+• Your money and upgrades carry over automatically

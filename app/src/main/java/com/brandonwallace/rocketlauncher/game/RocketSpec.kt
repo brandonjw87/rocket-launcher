@@ -182,6 +182,8 @@ class RocketSpec(val tech: Set<String>) {
     val plumeReady: Boolean = level(Stat.PLUME) >= 1
     /** A probe landing on Titan needs the Titan entry aeroshell and the Huygens-class probe. */
     val titanProbeReady: Boolean = level(Stat.TITAN) >= 2
+    /** What a Titan probe still needs, for hints and results (the aeroshell comes first in the tree). */
+    val titanProbeMissing: String get() = if (has("TH_TITANSHELL")) "the Huygens-Class Probe" else "the Titan Entry Aeroshell and Huygens-Class Probe"
     /** Flying on Titan needs the Dragonfly rotorcraft (and landing fuel). */
     val titanFlightReady: Boolean = level(Stat.TITAN) >= 3
     /** Titan landing fuel (fraction of last stage); the descent stage halves it. */
