@@ -70,7 +70,7 @@ class RocketSpec(val tech: Set<String>) {
     /** Saturn-era engines push harder without getting heavier: engine mass stops growing past the 1.2 top engine. */
     private val engineMassScale = (THRUST_KN[10] / THRUST_KN[level(Stat.ENGINE)]).coerceAtMost(1.0)
     val isp1 = ISP[level(Stat.ENGINE)] + 8.0 * level(Stat.REGEN)
-    /** Vacuum nozzle: +14 s per level; the niobium extension (level 2) adds another 20 s — the landing margin. */
+    /** Vacuum nozzle: +14 s at level 1, +34 s at level 2 (the niobium extension: the landing margin), +28 s per level from 3. */
     val upperIsp = isp1 + 42.0 + 14.0 * level(Stat.VACUUM) + (if (level(Stat.VACUUM) >= 2) VAC2_BONUS else 0.0) +
         14.0 * (level(Stat.VACUUM) - 2).coerceAtLeast(0) + NUCLEAR_ISP[level(Stat.NUCLEAR)]
     /** Tank size the FUEL research allows. */

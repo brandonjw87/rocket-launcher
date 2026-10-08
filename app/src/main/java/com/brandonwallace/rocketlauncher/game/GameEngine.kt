@@ -541,7 +541,7 @@ class GameEngine(private val store: SaveStore) {
         if (target == MissionTarget.SATURN && !jupiterReached && f.maxAlt >= Physics.JUPITER_ARRIVAL_ALT) jupiterReached = true
         if (f.maxAlt >= Physics.ASTEROID_BELT_START) unlock(Achievement.ASTEROID_BELT)
         if (f.maxAlt >= Physics.LIGHT_HOUR) unlock(Achievement.LIGHT_HOUR)
-        if (f.time >= 365.25 * 86_400) unlock(Achievement.LONG_HAUL)
+        if (target == MissionTarget.SATURN && f.time >= 365.25 * 86_400) unlock(Achievement.LONG_HAUL)
         if (target == MissionTarget.SATURN && spec.cruiseAccel > 0.0 && f.alt > Physics.JUPITER_ARRIVAL_ALT) unlock(Achievement.SAILOR)
         if (spec.has("P_AMAT2") && f.liftedOff) unlock(Achievement.ANTIMATTER)
         for (m in Milestone.entries) {
@@ -710,7 +710,7 @@ class GameEngine(private val store: SaveStore) {
         val records = ArrayList<String>()
         if (f.maxAlt > s0.bestAltitude) records.add("Altitude")
         if (f.topSpeed > s0.bestSpeed) records.add("Speed")
-        val newBalance = s0.money + st.total
+        val newBalance = if (st.total > Long.MAX_VALUE - s0.money) Long.MAX_VALUE else s0.money + st.total
         var next = s0.copy(
             money = newBalance,
             milestones = s0.milestones + st.milestones,
@@ -718,7 +718,7 @@ class GameEngine(private val store: SaveStore) {
             bestSpeed = max(s0.bestSpeed, f.topSpeed),
             flights = s0.flights + 1,
             achievements = s0.achievements + newAch,
-            totalEarned = s0.totalEarned + st.total,
+            totalEarned = if (st.total > Long.MAX_VALUE - s0.totalEarned) Long.MAX_VALUE else s0.totalEarned + st.total,
             marsOrbits = s0.marsOrbits + (if (marsOrbit) 1 else 0),
             marsLandings = s0.marsLandings + (if (marsLanded) 1 else 0),
             jupiterOrbits = s0.jupiterOrbits + (if (jupiterOrbit) 1 else 0),

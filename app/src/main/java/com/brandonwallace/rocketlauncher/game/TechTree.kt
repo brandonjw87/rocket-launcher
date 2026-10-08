@@ -87,7 +87,7 @@ object TechTree {
         n("P_FFSC", Branch.PROPULSION, "Full-Flow Staged Combustion", "Nine high-pressure engines.", 5, 0, listOf("P_STAGED", "TH_ABL"), mapOf(Stat.ENGINE to 1), "Nine-engine cluster"),
         n("TH_REGEN", Branch.THERMAL, "Regenerative Cooling", "Fuel-cooled chambers: +8 s Isp on every engine.", 3, 1, listOf("P_TURBO", "TH_CORK"), mapOf(Stat.REGEN to 1), "Cooling-tube ribs on bells", 0.8),
         n("P_VAC", Branch.PROPULSION, "Vacuum-Optimized Nozzles", "Upper stages get big expansion bells (+14 s Isp).", 4, 1, listOf("P_GG", "ST_2"), mapOf(Stat.VACUUM to 1), "Huge upper-stage bell", 1.3),
-        n("P_VAC2", Branch.PROPULSION, "Niobium Nozzle Extensions", "Radiatively cooled extensions (+14 s Isp).", 5, 1, listOf("P_VAC"), mapOf(Stat.VACUUM to 1), "Dark nozzle extension", 0.8),
+        n("P_VAC2", Branch.PROPULSION, "Niobium Nozzle Extensions", "Radiatively cooled extensions (+34 s Isp).", 5, 1, listOf("P_VAC"), mapOf(Stat.VACUUM to 1), "Dark nozzle extension", 0.8),
         n("P_GIMBAL", Branch.PROPULSION, "Gimballed Nozzle", "The nozzle swivels: the autopilot steers around hazards faster.", 1, 1, listOf("P_GRAIN"), mapOf(Stat.GIMBAL to 1), "Gimbal actuators on the engine", 0.5),
         n("P_TVC", Branch.PROPULSION, "Electric Thrust-Vector Control", "Electric actuators swing every engine: even quicker dodges.", 2, 1, listOf("P_GIMBAL", "P_LIQUID"), mapOf(Stat.GIMBAL to 1), "Red actuator struts on every engine", 0.5),
         n("B_SRB", Branch.PROPULSION, "Strap-on Solid Boosters", "Two small boosters for liftoff.", 2, 2, listOf("P_GRAIN", "S_ALU"), mapOf(Stat.BOOSTERS to 1), "2 side boosters", 1.5),
@@ -128,7 +128,7 @@ object TechTree {
         // ================= Mars program (tiers 7–9) =================
         n("P_METHALOX", Branch.PROPULSION, "Methalox Engines", "Methane/oxygen engines you could refuel on Mars.", 6, 0, listOf("P_FFSC"), mapOf(Stat.ENGINE to 1), "Larger, hotter bells"),
         n("P_RAPTOR2", Branch.PROPULSION, "Methalox Super-Cluster", "Thirteen high-thrust methalox engines.", 7, 0, listOf("P_METHALOX", "S_TITAN"), mapOf(Stat.ENGINE to 1), "Thirteen-engine cluster"),
-        n("P_VAC3", Branch.PROPULSION, "Deep-Space Nozzles", "Enormous expansion ratio for interplanetary burns (+14 s Isp).", 6, 1, listOf("P_VAC2"), mapOf(Stat.VACUUM to 1), "Wider upper-stage bell", 0.8),
+        n("P_VAC3", Branch.PROPULSION, "Deep-Space Nozzles", "Enormous expansion ratio for interplanetary burns (+28 s Isp).", 6, 1, listOf("P_VAC2"), mapOf(Stat.VACUUM to 1), "Wider upper-stage bell", 0.8),
         n("P_NTR", Branch.PROPULSION, "Nuclear Thermal Rocket", "Reactor-heated hydrogen upper stages (+110 s Isp).", 7, 1, listOf("P_VAC3", "ST_5"), mapOf(Stat.NUCLEAR to 1), "Gold-shielded nuclear upper engines", 1.1),
         n("P_NTR2", Branch.PROPULSION, "Bimodal Nuclear Core", "Hotter reactor core (+60 s more Isp).", 8, 1, listOf("P_NTR"), mapOf(Stat.NUCLEAR to 1), "Radiator panels on the upper stage", 0.6),
         n("B_HEAVY", Branch.PROPULSION, "Heavy Side Cores", "Two full liquid side cores replace the solid boosters.", 6, 2, listOf("B_QUAD", "P_FFSC"), mapOf(Stat.BOOSTERS to 1), "Two liquid side cores", 1.2),
@@ -148,7 +148,7 @@ object TechTree {
 
         // ================= Jupiter program (tiers 10–12) =================
         n("P_RAPTOR3", Branch.PROPULSION, "Methalox Mk III Cluster", "Twenty uprated methalox engines.", 9, 0, listOf("P_RAPTOR2"), mapOf(Stat.ENGINE to 1), "Twenty-engine cluster, bluer flame"),
-        n("P_VAC4", Branch.PROPULSION, "Carbon-Carbon Nozzle Skirts", "Extendable carbon-carbon skirts (+14 s Isp).", 9, 1, listOf("P_NTR2"), mapOf(Stat.VACUUM to 1), "Long black nozzle skirt", 0.7),
+        n("P_VAC4", Branch.PROPULSION, "Carbon-Carbon Nozzle Skirts", "Extendable carbon-carbon skirts (+28 s Isp).", 9, 1, listOf("P_NTR2"), mapOf(Stat.VACUUM to 1), "Long black nozzle skirt", 0.7),
         n("B_QUADHEAVY", Branch.PROPULSION, "Four Heavy Side Cores", "Four full liquid side cores around the core stage.", 9, 2, listOf("B_HEAVY", "P_RAPTOR2"), mapOf(Stat.BOOSTERS to 1), "Four liquid side cores"),
         n("S_ZBO", Branch.STRUCTURES, "Zero-Boil-Off Tanks", "Cryocoolers keep propellant cold for years: much bigger tanks.", 9, 3, listOf("S_REFUEL"), mapOf(Stat.FUEL to 1), "Longer stages + white cryocooler radiators"),
         n("S_WHIPPLE", Branch.STRUCTURES, "Whipple Shield", "Stand-off bumper panels shatter micrometeoroids: survive the asteroid belt.", 9, 4, listOf("S_TITAN"), mapOf(Stat.HULL to 1), "Quilted white bumper panels", 0.6),
@@ -172,7 +172,7 @@ object TechTree {
         // ================= Saturn program (tiers 13–24) =================
         // tier 13
         n("P_MK4", Branch.PROPULSION, "Methalox Mk IV", "Uprated 350-bar chambers on every first-stage engine.", 12, 0, listOf("P_RAPTOR3"), mapOf(Stat.ENGINE to 1), "Wider polished bells, brighter blue flame", 0.6),
-        n("P_DUALBELL", Branch.PROPULSION, "Dual-Bell Nozzles", "A second bell contour takes over in vacuum (+14 s Isp).", 12, 1, listOf("P_VAC4", "P_PLASMA2"), mapOf(Stat.VACUUM to 1), "Stepped dual-bell upper nozzle", 0.6),
+        n("P_DUALBELL", Branch.PROPULSION, "Dual-Bell Nozzles", "A second bell contour takes over in vacuum (+28 s Isp).", 12, 1, listOf("P_VAC4", "P_PLASMA2"), mapOf(Stat.VACUUM to 1), "Stepped dual-bell upper nozzle", 0.6),
         n("S_JUPTANK", Branch.STRUCTURES, "Outer-Planet Tanks", "Longer, wider tanks for the long haul past Jupiter.", 12, 3, listOf("S_SLUSH"), mapOf(Stat.FUEL to 1), "Longer, chunkier stages", 0.7),
         n("S_SELFHEAL", Branch.STRUCTURES, "Self-Healing Skin", "A polymer layer seals small punctures by itself.", 12, 4, listOf("S_GRAPHENE"), mapOf(Stat.HULL to 1), "Glossy amber healing bands", 0.9),
         n("A_CMG", Branch.AERO, "Control Moment Gyroscopes", "Spinning gyros swing the rocket around: sharper dodges.", 12, 7, listOf("A_ION"), mapOf(Stat.FINS to 1), "Gyro drums around the avionics ring", 0.9),
@@ -205,7 +205,7 @@ object TechTree {
         n("AV_SLING2", Branch.AVIONICS, "Precision Flyby Targeting", "Skims closer to Jupiter for a bigger slingshot.", 15, 9, listOf("AV_OPNAV"), mapOf(Stat.SLING to 1), "Second pair of star trackers", 0.6),
         n("TH_ACTIVE", Branch.THERMAL, "Active Film Cooling", "A thin coolant film flows over the nose during the climb.", 15, 10, listOf("TH_UHTC"), mapOf(Stat.HEAT to 1), "Silver vent ring at the nose", 0.9),
         // tier 17
-        n("P_PETAL", Branch.PROPULSION, "Folding Petal Nozzles", "Petals unfold into an enormous bell in space (+14 s Isp).", 16, 1, listOf("P_DUALBELL"), mapOf(Stat.VACUUM to 1), "Petal-segmented upper bell", 0.6),
+        n("P_PETAL", Branch.PROPULSION, "Folding Petal Nozzles", "Petals unfold into an enormous bell in space (+28 s Isp).", 16, 1, listOf("P_DUALBELL"), mapOf(Stat.VACUUM to 1), "Petal-segmented upper bell", 0.6),
         n("S_ANNULAR", Branch.STRUCTURES, "Wrap-Around Tanks", "Extra ring-shaped tanks wrap around every stage.", 16, 3, listOf("S_TANKERS"), mapOf(Stat.FUEL to 1), "Ribbed tank bands", 0.7),
         n("S_BNNT", Branch.STRUCTURES, "Boron-Nitride Nanotube Armor", "Ultra-tough nanotube plating.", 16, 4, listOf("S_SPIDER"), mapOf(Stat.HULL to 1), "Pale ceramic armour plates", 0.9),
         n("ST_DROP", Branch.STAGING, "Drop Tanks", "Slim jettisonable tanks feed the second stage first.", 16, 5, listOf("ST_CROSS"), mapOf(Stat.FUEL to 1), "Two slim drop tanks", 0.7),
@@ -235,7 +235,7 @@ object TechTree {
         n("A_BALLUTE", Branch.AERO, "Inflatable Ballute", "A balloon-parachute grabs Saturn's upper air: orbit needs only 2% fuel.", 19, 8, listOf("A_MORPH", "TH_AEROSHIELD"), mapOf(Stat.AEROCAP to 1), "Folded orange ballute ring"),
         n("AV_IOFLYBY", Branch.AVIONICS, "Io–Jupiter Double Flyby", "Swing past Io and then Jupiter: an even bigger slingshot.", 19, 9, listOf("AV_SLING2", "AV_KILO"), mapOf(Stat.SLING to 1), "Big white high-gain dish", 0.7),
         // tier 21
-        n("P_MAGNOZ", Branch.PROPULSION, "Superconducting Magnetic Nozzle", "Magnets shape the exhaust perfectly (+14 s Isp).", 20, 1, listOf("P_AMAT"), mapOf(Stat.VACUUM to 1), "Glowing blue magnet rings at the nozzle", 0.6),
+        n("P_MAGNOZ", Branch.PROPULSION, "Superconducting Magnetic Nozzle", "Magnets shape the exhaust perfectly (+28 s Isp).", 20, 1, listOf("P_AMAT"), mapOf(Stat.VACUUM to 1), "Glowing blue magnet rings at the nozzle", 0.6),
         n("S_DUSTFIELD", Branch.STRUCTURES, "Electrostatic Dust Field", "A charged field pushes ring dust away: ring ice does even less damage.", 20, 4, listOf("S_METAMAT"), mapOf(Stat.RINGS to 1), "Violet field-emitter spikes", 0.9),
         n("ST_STRETCH", Branch.STAGING, "Stretched Upper Stages", "Every upper stage grows longer.", 20, 5, listOf("ST_8"), mapOf(Stat.FUEL to 1), "Longer upper stages", 0.7),
         n("A_MICRO", Branch.AERO, "Micro-Thruster Skin", "Thousands of tiny thrusters in the skin: instant steering.", 20, 7, listOf("A_LASERABL"), mapOf(Stat.FINS to 1), "Dotted thruster bands", 0.9),

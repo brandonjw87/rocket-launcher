@@ -18,7 +18,7 @@ Free, no ads, no internet permission, no tracking.
   per flight number, so the outcome depends only on upgrades.
 - **One mission, 18 steps in two chapters.** To Europa (1.2): space → orbit → past the Moon → Mars transfer →
   Mars orbit → Mars landing → asteroid belt → Jupiter orbit → Europa landing. The Saturn chapter (1.3): Jupiter
-  slingshot → halfway to Saturn → 1 billion km → reach Saturn → cross the rings → Saturn orbit → Enceladus plumes →
+  flyby → halfway to Saturn → 1 billion km → reach Saturn → cross the rings → Saturn orbit → Enceladus plumes →
   Titan probe → fly on Titan. No destination picker: flights target Mars until the first Mars landing, then Jupiter
   until the first Europa landing, then Saturn (past Mars and a Jupiter flyby on the way).
 - **Real distances:** Moon 384,400 km, Mars 55 million km (close approach), Jupiter 588 million km, Saturn
@@ -70,7 +70,7 @@ pause/stop, and an unreadable save is never overwritten with a blank one.
 ## Build
 
 - Debug: `./gradlew assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`
-- Tests: `./gradlew testDebugUnitTest` (54 tests: economy, saves/migrations, progression, physics, a headless
+- Tests: `./gradlew testDebugUnitTest` (55 tests: economy, saves/migrations, progression, physics, a headless
   engine + renderer smoke test that flies whole campaigns to the Moon, Mars, Europa and Titan).
 - Release (Google Play): `./gradlew bundleRelease` → `app/build/outputs/bundle/release/app-release.aab`, signed with the
   Play **upload key**, read from an external properties file (`-ProcketLauncherKeystoreProps=<path>`, env

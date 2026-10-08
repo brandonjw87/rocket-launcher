@@ -456,7 +456,7 @@ class SmokeTest {
         assertTrue("nav computer cut the engines", navCutSeen)
         assertTrue("Jupiter flyby is slowed down to be visible ($slowestNearJupiter)", slowestNearJupiter < 50_000)
         assertTrue("ring ice on the way in", iceSeen)
-        for (b in listOf("MARS FLYBY", "JUPITER SLINGSHOT", "Jupiter Slingshot  +", "Halfway to Saturn  +", "Billion-Kilometer Club  +", "SATURN'S RINGS",
+        for (b in listOf("MARS FLYBY", "JUPITER SLINGSHOT", "Jupiter Flyby  +", "Halfway to Saturn  +", "Billion-Kilometer Club  +", "SATURN'S RINGS",
                 "Saturn Arrival  +", "Slingshot", "DRAGONFLY FLIES ON TITAN"))
             assertTrue("banner '$b' shown", banners.any { it.contains(b) })
         assertTrue("Saturn trip should take about 5 minutes (3.5-7 min) of real time, took ${frames / 60}s", frames in 12_600..25_200)
@@ -647,5 +647,20 @@ class SmokeTest {
             if (i >= 100) assertTrue(f - last < 0.01f)
             last = f
         }
+    }
+
+    @Test fun moneySaturatesAndLongHaulIsASaturnBadge() {
+        // long after the tree is finished the hidden bonus keeps compounding: the balance must cap, not wrap negative
+        val rich = screenshotSave("saturn").copy(money = Long.MAX_VALUE - 1_000, totalEarned = Long.MAX_VALUE - 1_000)
+        val h = Harness(rich.serialize())
+        assertTrue(fly(h, false))
+        assertEquals(Long.MAX_VALUE, h.engine.hud.value.results!!.balanceAfter)
+        val reloaded = GameEngine(h.store).save.value
+        assertEquals(Long.MAX_VALUE, reloaded.money)
+        assertEquals(Long.MAX_VALUE, reloaded.totalEarned)
+        // Jupiter-chapter flights also last over a sim-year, but Long Haul belongs to the Saturn chapter
+        val jup = forecastFlight(screenshotSave("jupiter"))!!
+        assertTrue(jup.time > 365.25 * 86_400)
+        assertFalse(com.brandonwallace.rocketlauncher.game.Achievement.LONG_HAUL in jup.achievements)
     }
 }

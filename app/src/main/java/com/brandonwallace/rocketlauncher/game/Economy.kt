@@ -31,7 +31,7 @@ enum class Milestone(val title: String, val altitude: Double, val bonus: Long) {
     JUPITER_APPROACH("Jupiter Approach", 5.0e11, 45_000),
     JUPITER("Jupiter Arrival", Physics.JUPITER_ARRIVAL_ALT, 80_000),
     // 1.3: the mission swings past Jupiter on to Saturn (1.2 billion km)
-    JUPITER_SLINGSHOT("Jupiter Slingshot", 6.0e11, 48_000),
+    JUPITER_SLINGSHOT("Jupiter Flyby", 6.0e11, 48_000),   // a distance mark: the real slingshot is the SLINGSHOT badge
     JOVIAN_MOONS("Past Jupiter's Outer Moons", 6.2e11, 50_000),
     MAGNETOTAIL("Jupiter's Magnetotail", 6.5e11, 52_000),
     KM_700M("700 Million km", 7.0e11, 55_000),
@@ -53,7 +53,7 @@ enum class Milestone(val title: String, val altitude: Double, val bonus: Long) {
 
 /**
  * The single continuous mission: launch → space → orbit → past the Moon → Mars transfer → Mars orbit →
- * Mars landing → past Mars to Jupiter → Jupiter orbit → Europa landing → (1.3) Jupiter slingshot → halfway to
+ * Mars landing → past Mars to Jupiter → Jupiter orbit → Europa landing → (1.3) Jupiter flyby → halfway to
  * Saturn → a billion km → Saturn → ring crossing → Saturn orbit → Enceladus' plumes → Titan probe → Titan
  * flight, all on one flight path. Progress is derived from the save (no rewards of its own). Enum names are not
  * stored in saves.
@@ -69,7 +69,7 @@ enum class Mission(val title: String, val desc: String, val icon: String) {
     JUPITER_ORBIT("Jupiter orbit", "Reach Jupiter with 5% fuel or a spare stage, inside a radiation vault", "🟠"),
     EUROPA_LANDING("Land on Europa", "Europa lander + radiation-hardened electronics + landing fuel", "🧊"),
     // 1.3: the Saturn chapter
-    JUPITER_SLINGSHOT("Jupiter slingshot", "Swing past Jupiter on the way to Saturn", "🌀"),
+    JUPITER_SLINGSHOT("Jupiter flyby", "Fly past Jupiter on the way to Saturn (600 million km)", "🟠"),
     HALFWAY_SATURN("Halfway to Saturn", "Fly 894 million km: halfway from Jupiter to Saturn", "🧭"),
     BILLION_KM("Billion-kilometer club", "Fly 1 billion km from Earth", "✨"),
     SATURN_ARRIVAL("Reach Saturn", "Fly all the way to Saturn: 1.2 billion km", "🪐"),
@@ -132,7 +132,7 @@ enum class Achievement(val title: String, val desc: String) {
     OUTER_EXPRESS("Outer-Planet Express", "Fly faster than 25 km/s"),
     BIG_STACK("Eight-Stage Stack", "Separate 7 stages in one flight"),
     LIGHT_HOUR("Light-Hour Traveller", "Fly one light-hour from Earth"),
-    LONG_HAUL("Long Haul", "Fly one flight lasting over a year (sim time)"),
+    LONG_HAUL("Long Haul", "Fly one Saturn flight lasting over a year (sim time)"),
     SAILOR("Sun Sailor", "Cruise past Jupiter with a sail or ion engines pushing"),
     ICE_BREAKER("Ice Breaker", "Dodge 10 chunks of ring ice in one flight"),
     RING_RIDER("Ring Rider", "Cross Saturn's ring plane"),
